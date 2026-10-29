@@ -74,11 +74,14 @@ def test_evaluate_keys(synthetic, tmp_path):
     probs = rng.random((3, 96, 5))
     result = evaluate(synthetic.y, probs, synthetic.meta["patient_id"].to_numpy(), n_boot=50)
     expected = {"macro_auroc", "ece", "brier", "mean_entropy", "mean_mi"}
-    expected |= {f"{m}_{b}" for m in ["macro_auroc", "ece", "brier"] for b in ["lo", "hi"]}
+    expected |= {f"{m}_{b}" for m in ["macro_auroc", "brier"] for b in ["lo", "hi"]}
     expected |= {f"auroc_{c}" for c in ["NORM", "MI", "STTC", "CD", "HYP"]}
     assert expected <= set(result)
-    for m in ["macro_auroc", "ece", "brier"]:
+    for m in ["macro_auroc", "brier"]:
         assert result[f"{m}_lo"] <= result[m] <= result[f"{m}_hi"]
+    # Binned ECE is biased upward under bootstrap resampling (duplicated records), so its
+    # percentile interval need not contain the point estimate: report ECE without a CI.
+    assert "ece_lo" not in result and "ece_hi" not in result
 
     save_preds(tmp_path / "p.npz", synthetic.meta.index.to_numpy(), probs)
     ids, loaded = load_preds(tmp_path / "p.npz")

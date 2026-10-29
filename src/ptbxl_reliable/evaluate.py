@@ -10,12 +10,19 @@ from ptbxl_reliable.uncertainty import ensemble_mean, mutual_information, predic
 
 
 def evaluate(y: np.ndarray, probs: np.ndarray, patient_ids: np.ndarray, n_boot: int = 1000) -> dict[str, float]:
-    """Metrics of an ensemble's predictions `probs` (M, N, C), with patient-level 95% CIs."""
+    """Metrics of an ensemble's predictions `probs` (M, N, C), with patient-level 95% CIs.
+
+    ECE gets no CI. Binned ECE is biased upward, and more so on a bootstrap resample (only
+    ~63% unique records), so its percentile interval can sit entirely above the point estimate.
+    The Brier score is a proper scoring rule without that problem and carries the
+    statistical comparison of calibration; ECE and reliability diagrams describe it.
+    """
     p = ensemble_mean(probs)
     result = {}
-    for name, metric in [("macro_auroc", macro_auroc), ("ece", ece), ("brier", brier)]:
+    for name, metric in [("macro_auroc", macro_auroc), ("brier", brier)]:
         point, lo, hi = bootstrap_ci(metric, y, p, patient_ids, n_boot=n_boot)
         result.update({name: point, f"{name}_lo": lo, f"{name}_hi": hi})
+    result["ece"] = ece(y, p)
     for cls, auc in zip(SUPERCLASSES, per_class_auroc(y, p)):
         result[f"auroc_{cls}"] = float(auc)
     result["mean_entropy"] = float(predictive_entropy(p).mean())
