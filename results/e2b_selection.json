@@ -1,0 +1,8 @@
+{
+  "strategy": "mean_impute",
+  "val_macro_auroc_full": {
+    "mean_impute": 0.9368459485238272,
+    "indicator": 0.9355055346523489,
+    "dropout": 0.9365920242547985
+  }
+}
