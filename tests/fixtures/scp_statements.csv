@@ -1,0 +1,7 @@
+,description,diagnostic,form,rhythm,diagnostic_class,diagnostic_subclass
+IMI,inferior myocardial infarction,1.0,,,MI,IMI
+NORM,normal ECG,1.0,,,NORM,NORM
+SR,sinus rhythm,,,1.0,,
+LVH,left ventricular hypertrophy,1.0,,,HYP,LVH
+NDT,non-diagnostic T abnormalities,1.0,1.0,,STTC,STTC
+FAKE,form statement that is not diagnostic,0.0,1.0,,CD,CD
