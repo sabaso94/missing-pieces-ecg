@@ -1,0 +1,7 @@
+{
+  "strategy": "dropout",
+  "val_macro_auroc_leadI": {
+    "naive": 0.46428188035097245,
+    "dropout": 0.8420403946177298
+  }
+}
