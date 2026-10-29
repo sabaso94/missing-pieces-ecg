@@ -84,3 +84,12 @@ def test_evaluate_keys(synthetic, tmp_path):
     ids, loaded = load_preds(tmp_path / "p.npz")
     np.testing.assert_array_equal(ids, synthetic.meta.index.to_numpy())
     np.testing.assert_array_equal(loaded, probs)
+
+
+def test_predict_ensemble_stacks_members(synthetic):
+    from ptbxl_reliable.train import predict_ensemble
+
+    models = [train_model(_cfg(seed=s), synthetic)[0] for s in (0, 1)]
+    probs = predict_ensemble(models, synthetic.x[:6], "limb6", device="cpu")
+    assert probs.shape == (2, 6, 5)
+    np.testing.assert_allclose(probs[1], predict(models[1], synthetic.x[:6], "limb6", device="cpu"))

@@ -64,6 +64,17 @@ def predict(
     return np.concatenate(out)
 
 
+def predict_ensemble(
+    models: list[ECGResNet],
+    x: np.ndarray,
+    mask_name: str,
+    tab: np.ndarray | None = None,
+    device: str = "cuda",
+) -> np.ndarray:
+    """Every member's probabilities, stacked as (M, N, 5)."""
+    return np.stack([predict(model, x, mask_name, tab, device=device) for model in models])
+
+
 def train_model(cfg: TrainConfig, data: PreparedData) -> tuple[ECGResNet, pd.DataFrame]:
     """Train one model; return the weights from the epoch with the best validation macro-AUROC."""
     _seed_everything(cfg.seed)
