@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from ptbxl_reliable.data import SUPERCLASSES
-from ptbxl_reliable.subgroups import age_group, merge_small_bins, subgroup_table
+from ptbxl_reliable.metrics import macro_auroc
+from ptbxl_reliable.subgroups import age_group, gap_ci, merge_small_bins, subgroup_table
 
 
 def test_age_group_boundaries():
@@ -34,3 +36,36 @@ def test_subgroup_table_rows():
     assert np.isnan(b["auroc_HYP"])
     assert np.isfinite(b["macro_auroc"])
     assert all(f"prevalence_{c}" in table for c in SUPERCLASSES)
+
+
+def test_gap_ci_detects_real_gap():
+    rng = np.random.default_rng(0)
+    n = 600
+    y = rng.integers(0, 2, size=(n, 5))
+    in_a = np.arange(n) < 300
+    p = rng.random((n, 5))
+    p[in_a] = 0.8 * y[in_a] + 0.2 * p[in_a]  # group a: near-perfect, group b: random
+    point, lo, hi = gap_ci(macro_auroc, y, p, in_a, ~in_a, np.arange(n), n_boot=200)
+    assert point == pytest.approx(macro_auroc(y[in_a], p[in_a]) - macro_auroc(y[~in_a], p[~in_a]))
+    assert 0 < lo < point < hi
+
+
+def test_gap_ci_contains_zero_without_gap():
+    rng = np.random.default_rng(1)
+    n = 600
+    y = rng.integers(0, 2, size=(n, 5))
+    p = np.clip(0.3 * y + 0.7 * rng.random((n, 5)), 0, 1)  # same model quality in both groups
+    in_a = rng.random(n) < 0.5
+    _, lo, hi = gap_ci(macro_auroc, y, p, in_a, ~in_a, np.arange(n) // 2, n_boot=200)
+    assert lo < 0 < hi
+
+
+def test_gap_ci_ignores_records_outside_both_groups():
+    rng = np.random.default_rng(2)
+    n = 900
+    y = rng.integers(0, 2, size=(n, 5))
+    p = rng.random((n, 5))
+    in_a, in_b = np.arange(n) < 300, (np.arange(n) >= 300) & (np.arange(n) < 600)
+    p[600:] = y[600:]  # a third group the comparison must not see
+    point, _, _ = gap_ci(macro_auroc, y, p, in_a, in_b, np.arange(n), n_boot=10)
+    assert point == pytest.approx(macro_auroc(y[in_a], p[in_a]) - macro_auroc(y[in_b], p[in_b]))

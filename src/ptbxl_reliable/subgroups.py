@@ -1,10 +1,13 @@
 """Performance and calibration per subgroup (sex, age), for the fairness analysis in E3."""
 
+from collections.abc import Callable
+
 import numpy as np
 import pandas as pd
 
 from ptbxl_reliable.data import SUPERCLASSES
 from ptbxl_reliable.evaluate import evaluate
+from ptbxl_reliable.metrics import _patient_resample_indices
 
 AGE_EDGES = (40, 60, 80)
 UNKNOWN = "unknown"
@@ -66,3 +69,30 @@ def subgroup_table(
         row.update(evaluate(y[mask], probs[:, mask], meta["patient_id"].to_numpy()[mask], n_boot=n_boot))
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def gap_ci(
+    metric: Callable[[np.ndarray, np.ndarray], float],
+    y: np.ndarray,
+    p: np.ndarray,
+    in_a: np.ndarray,
+    in_b: np.ndarray,
+    patient_ids: np.ndarray,
+    n_boot: int = 1000,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """metric(group a) - metric(group b), with a 95% CI from resampling patients of both groups together.
+
+    Two overlapping per-group CIs do not mean "no difference"; this interval tests the gap directly.
+    Compare single groups, never a group against "everyone else": AUROC of a pooled set also rewards
+    telling the pooled groups apart (older patients are more often abnormal), so it is inflated.
+    """
+    def gap(idx: np.ndarray) -> float:
+        a, b = in_a[idx], in_b[idx]
+        return metric(y[idx][a], p[idx][a]) - metric(y[idx][b], p[idx][b])
+
+    rng = np.random.default_rng(seed)
+    point = gap(np.arange(len(y)))
+    samples = [gap(_patient_resample_indices(patient_ids, rng)) for _ in range(n_boot)]
+    lo, hi = np.nanpercentile(samples, [2.5, 97.5])
+    return float(point), float(lo), float(hi)

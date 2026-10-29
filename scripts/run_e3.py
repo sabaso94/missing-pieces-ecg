@@ -1,6 +1,7 @@
 """E3: subgroup performance and calibration by sex and age, on the test split.
 
-Uses the test predictions saved by E1/E2a/E2b, so no model is re-run. Models:
+Uses the test predictions saved by E1/E2a/E2b, so no model is re-run. Writes per-group metrics
+(e3_subgroups.csv) and the gaps between groups with patient-level bootstrap CIs (e3_gaps.csv). Models:
 - e1_all12:              ECG-only baseline, 12 leads
 - e2a_<selected>_all12:  the missing-lead model chosen on val, 12 leads
 - e2a_<selected>_leadI:  the same model on lead I only (does reduced input hurt some groups more?)
@@ -16,7 +17,9 @@ import pandas as pd
 
 from ptbxl_reliable.data import SUPERCLASSES, load_metadata, split_ids
 from ptbxl_reliable.evaluate import load_preds
-from ptbxl_reliable.subgroups import UNKNOWN, age_group, merge_small_bins, subgroup_table
+from ptbxl_reliable.metrics import brier, macro_auroc
+from ptbxl_reliable.subgroups import UNKNOWN, age_group, gap_ci, merge_small_bins, subgroup_table
+from ptbxl_reliable.uncertainty import ensemble_mean
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
@@ -42,7 +45,7 @@ def main() -> None:
         f"e2b_{meta_sel}_full": f"e2b_{meta_sel}_full_test",
     }
 
-    tables = []
+    tables, gaps = [], []
     for model, preds_name in models.items():
         ecg_ids, probs = load_preds(RESULTS / "preds" / f"{preds_name}.npz")
         if not np.array_equal(ecg_ids, test.index.to_numpy()):
@@ -53,13 +56,29 @@ def main() -> None:
             table = subgroup_table(y[known], probs[:, known], test[known], f"{attribute}_group", n_boot=args.n_boot)
             tables.append(table.assign(model=model, attribute=attribute))
 
+            # The gap itself, with a CI, against one reference group: men vs women; each age group vs the
+            # largest one. Not "vs everyone else": AUROC on a pooled set is inflated (see gap_ci).
+            groups = test[f"{attribute}_group"].to_numpy()[known]
+            reference = "female" if attribute == "sex" else table.loc[table["n"].idxmax(), "group"]
+            for group in [g for g in table["group"] if g != reference]:
+                for metric_name, metric in [("macro_auroc", macro_auroc), ("brier", brier)]:
+                    point, lo, hi = gap_ci(
+                        metric, y[known], ensemble_mean(probs)[known], groups == group, groups == reference,
+                        test["patient_id"].to_numpy()[known], n_boot=args.n_boot,
+                    )
+                    gaps.append({"model": model, "attribute": attribute, "group": group, "versus": reference,
+                                 "metric": metric_name, "gap": point, "gap_lo": lo, "gap_hi": hi})
+
     table = pd.concat(tables)
     table = table[["model", "attribute"] + [c for c in table if c not in ("model", "attribute")]]
     table.to_csv(RESULTS / "e3_subgroups.csv", index=False)
+    gaps = pd.DataFrame(gaps)
+    gaps.to_csv(RESULTS / "e3_gaps.csv", index=False)
     (RESULTS / "e3_age_merges.json").write_text(json.dumps(merges, indent=2))
 
     cols = ["n", "macro_auroc", "macro_auroc_lo", "macro_auroc_hi", "brier", "ece"]
     print(table.set_index(["model", "attribute", "group"])[cols].round(3).to_string())
+    print(gaps.set_index(["model", "attribute", "group", "metric"]).round(3).to_string())
     print("age bin merges:", merges or "none")
 
 
