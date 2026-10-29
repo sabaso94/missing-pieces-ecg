@@ -1,0 +1,13 @@
+analysis,group,value
+cv_auroc_site_device_year,height_missing,0.8823902101549361
+cv_auroc_site_device_year,weight_missing,0.785053603636436
+prevalence_NORM,height_missing=0,0.47335991301196084
+prevalence_MI,height_missing=0,0.20242841609278725
+prevalence_STTC,height_missing=0,0.27183762232693004
+prevalence_CD,height_missing=0,0.2249003262051468
+prevalence_HYP,height_missing=0,0.15005436752446538
+prevalence_NORM,height_missing=1,0.4309182085422791
+prevalence_MI,height_missing=1,0.2820335466021096
+prevalence_STTC,height_missing=1,0.23223240532595538
+prevalence_CD,height_missing=1,0.23050319903164448
+prevalence_HYP,height_missing=1,0.11162026629776932

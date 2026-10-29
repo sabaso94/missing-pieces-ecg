@@ -1,0 +1,17 @@
+column,split,missing_fraction
+age,all,0.0
+sex,all,0.0
+height,all,0.6765475967832429
+weight,all,0.5620908920890219
+age,train,0.0
+sex,train,0.0
+height,train,0.6770077265277452
+weight,train,0.5787286349800983
+age,val,0.0
+sex,val,0.0
+height,val,0.6700838769804287
+weight,val,0.4874184529356943
+age,test,0.0
+sex,test,0.0
+height,test,0.6793327154772938
+weight,test,0.504633920296571
