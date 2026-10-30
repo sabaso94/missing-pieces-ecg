@@ -9,7 +9,7 @@ This repository studies those two questions on PTB-XL, a public dataset of 21,79
 - **Calibration:** reliability diagrams, ECE and the Brier score.
 - **Subgroup reliability:** discrimination and calibration by sex and age, with patient-level bootstrap tests of the gaps between groups (E3).
 
-Every number is computed on the official PTB-XL test fold. Confidence intervals are 95% intervals from a bootstrap that resamples patients, not individual ECGs, because one patient can have several recordings.
+Every model performance number is computed on the official PTB-XL test fold. Confidence intervals are 95% intervals from a bootstrap that resamples patients, not individual ECGs, because one patient can have several recordings.
 
 ## Motivation
 
@@ -41,7 +41,7 @@ All model and strategy choices are made on the validation fold. The test fold is
 
 ### E1: baseline
 
-The 12-lead ensemble reaches **macro-AUROC 0.930 [0.923, 0.937]** on the test fold, with Brier 0.079 [0.075, 0.084] and ECE 0.021. This is in line with published PTB-XL benchmarks for comparable 1D ResNets (Strodthoff et al., 2021). Per-class AUROC ranges from 0.908 (HYP) to 0.950 (NORM). The reliability diagrams stay close to the diagonal for all five classes.
+The 12-lead ensemble reaches **macro-AUROC 0.930 [0.923, 0.937]** on the test fold, with Brier 0.079 [0.075, 0.084] and ECE 0.021. This matches the published PTB-XL benchmark for the same task, sampling rate and splits: 0.930 for resnet1d_wang and 0.928 for xresnet1d101 (Strodthoff et al., 2021, Table II). Per-class AUROC [95% CI]: NORM 0.950 [0.941, 0.958], STTC 0.940 [0.927, 0.950], MI 0.930 [0.918, 0.940], CD 0.924 [0.907, 0.938], HYP 0.908 [0.886, 0.926]. The reliability diagrams stay close to the diagonal for all five classes.
 
 ![E1 reliability diagrams](figures/e1_reliability.png)
 
@@ -65,14 +65,14 @@ Three strategies are compared:
 | Lead dropout | 0.929 | 0.896 | 0.854 | 0.834 |
 | Specialist per setup | 0.930 | 0.897 | 0.857 | 0.838 |
 
-- **The 12-lead model fails when leads are missing.** On a single lead it performs at chance level, and its ECE rises from 0.02 to about 0.25. Zeroed leads resemble pathology to this model: its mean predicted probability of NORM drops to 0.09, against a true prevalence of 0.45.
-- **One lead-dropout model handles every setup.** It comes within 0.004 AUROC of the specialists, costs nothing on full 12-lead input, and keeps ECE at about 0.03 throughout.
+- **The 12-lead model fails when leads are missing.** On a single lead it performs at chance level, and its ECE rises from 0.02 to about 0.25. Zeroed leads resemble pathology to this model: its mean predicted probability of NORM drops to 0.08–0.10, against a true prevalence of 0.45.
+- **One lead-dropout model handles every setup.** It comes within 0.004 AUROC of the specialists, costs nothing in discrimination on full 12-lead input (0.929 vs 0.930), and keeps ECE at about 0.03 throughout.
 
 ![E2a missing leads](figures/e2a_leads.png)
 
 **Uncertainty.** As leads are removed from the lead-dropout model, its predictive entropy rises (0.23 on 12 leads, 0.36 on lead I), while its mutual information falls (0.020 to 0.008). The added uncertainty therefore comes from ambiguity in the input, not from disagreement between ensemble members.
 
-**Abstaining.** If the model keeps only the less uncertain half of the lead-I records, the Brier score improves from 0.121 to 0.080. The 12-lead model gains almost nothing from abstaining, because its entropy does not identify which records it gets wrong. A model's uncertainty is only useful if it was trained on the kind of input it receives.
+**Abstaining.** On lead I, if the lead-dropout model answers only on the more certain half of the records, its Brier score on those records falls from 0.121 to 0.080. The 12-lead model, given lead I, gains almost nothing (0.254 to 0.249): its entropy does not single out the records it gets wrong. A model's uncertainty is only useful if it was trained on the kind of input it receives. The Brier score is the risk measure here; AUROC within the retained records is not, because the class mix of the retained records changes with coverage.
 
 ![E2a risk–coverage](figures/e2a_risk_coverage.png)
 
@@ -94,10 +94,10 @@ Each model is evaluated in three conditions: metadata as recorded, only records 
 
 ![E2b metadata fusion](figures/e2b_metadata.png)
 
-- **Adding metadata does not change discrimination.** With metadata as recorded, test macro-AUROC is 0.930 for ECG only and 0.930–0.932 for the three fusion models, all within each other's confidence intervals. The ECG itself already carries much of the information in age and sex.
+- **Adding metadata does not change discrimination.** With metadata as recorded, test macro-AUROC is 0.930 for ECG only and 0.930–0.932 for the three fusion models, differences of at most 0.002. The ECG itself already carries much of the information in age and sex: sex can be predicted from the ECG alone with AUC 0.92 (Strodthoff et al., 2021).
 - **No strategy breaks when metadata is removed.** AUROC stays at 0.930–0.931.
 - **On the subset with complete metadata (n = 672), every model scores higher, including the ECG-only model** (0.942 vs 0.930). The difference comes from *which patients* have complete metadata (mostly one site), not from the metadata. Evaluating only on patients with complete data would overstate the effect of adding metadata.
-- **Missing indicators slightly worsen calibration** (ECE 0.031 vs 0.021). This is consistent with the indicators encoding the recording site.
+- **Missing indicators give a higher ECE** (0.031 vs 0.021), with the Brier score almost unchanged (0.081 vs 0.079). One possible reason is that the indicators partly encode the recording site.
 
 ### E3: subgroups by sex and age
 
@@ -113,8 +113,8 @@ The gaps are tested directly with a bootstrap that resamples patients from both 
 | ≥80 years − 60–79 years | −0.036 [−0.064, −0.011] | −0.033 [−0.066, 0.002] |
 | <40 years − 60–79 years | +0.004 [−0.021, 0.031] | −0.009 [−0.075, 0.055] |
 
-- **Sex.** The 12-lead model discriminates slightly worse for women. The Brier score is also worse for women (−0.012 [−0.021, −0.003], male minus female). The two groups have similar label prevalences. The gap shows up in NORM, MI, STTC and CD but not in HYP. It persists in the fusion model, which receives sex as an input.
-- **Age.** Patients aged 80 and over are the least well served: lower AUROC and the highest ECE (0.057, rising to 0.094 on lead I). Part of this reflects a harder label mix rather than the model alone. NORM prevalence falls from 83% under 40 to 7% at 80 and over, and older patients more often carry several diagnoses at once.
+- **Sex.** The 12-lead model discriminates slightly worse for women. The Brier score is also worse for women (−0.012 [−0.021, −0.003], male minus female). Label prevalences are similar between the groups except for STTC (21% in men, 28% in women). The gap shows up in NORM, MI, STTC and CD but not in HYP. It persists in the fusion model, which receives sex as an input.
+- **Age.** Patients aged 80 and over are the least well served: lower AUROC and a worse Brier score (+0.021 [0.008, 0.033] vs 60–79). Their ECE is also the highest (0.057, rising to 0.094 on lead I), although ECE values from groups of different size are only descriptive. Part of this reflects a harder label mix rather than the model alone. NORM prevalence falls from 83% under 40 to 7% at 80 and over, and older patients more often carry several diagnoses at once.
 - **The model's uncertainty rises with its error.** Mean predictive entropy grows from 0.16 (<40) to 0.33 (≥80), so the ensemble signals lower confidence in the group where it performs worst.
 - **Comparing groups needs care.** Subgroup AUROC is compared between single groups (here against the largest age group) rather than against "everyone else". AUROC computed over pooled groups also rewards separating those groups from each other, which inflates it.
 
@@ -125,6 +125,7 @@ The gaps are tested directly with a bootstrap that resamples patients from both 
 - **No causal analysis.** The subgroup gaps and the missingness patterns are described, not explained causally.
 - **Metadata is a weak modality here.** Four demographic fields add little to a 12-lead ECG. Modalities that carry more independent information, such as clinical history or lab values, would test fusion under missingness more strongly.
 - **Age and sex play two roles.** They are inputs to the fusion model and also define the subgroups in E3. The primary subgroup analysis therefore uses the ECG-only model.
+- **No correction for multiple comparisons.** E3 reports 6 gaps for each of 4 models with unadjusted 95% intervals.
 - **Simulated lead removal.** Removing leads from 12-lead recordings is not the same as recording with a single-lead device, whose signal quality and electrode placement differ.
 
 ## Reproduce

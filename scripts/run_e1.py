@@ -28,7 +28,9 @@ def main() -> None:
         idx = data.idx[split]
         probs = predict_ensemble(models, data.x[idx], "all12", device=args.device)
         save_preds(ROOT / "results" / "preds" / f"e1_{split}.npz", data.meta.index[idx].to_numpy(), probs)
-        result = evaluate(data.y[idx], probs, data.meta["patient_id"].to_numpy()[idx], n_boot=args.n_boot)
+        result = evaluate(
+            data.y[idx], probs, data.meta["patient_id"].to_numpy()[idx], n_boot=args.n_boot, per_class_ci=True
+        )
         rows += [{"split": split, "metric": k, "value": v} for k, v in result.items()]
 
     table = pd.DataFrame(rows)

@@ -89,6 +89,16 @@ def test_evaluate_keys(synthetic, tmp_path):
     np.testing.assert_array_equal(loaded, probs)
 
 
+def test_evaluate_per_class_ci(synthetic):
+    rng = np.random.default_rng(0)
+    probs = rng.random((3, 96, 5))
+    patients = synthetic.meta["patient_id"].to_numpy()
+    assert "auroc_NORM_lo" not in evaluate(synthetic.y, probs, patients, n_boot=20)
+    result = evaluate(synthetic.y, probs, patients, n_boot=20, per_class_ci=True)
+    for c in ["NORM", "MI", "STTC", "CD", "HYP"]:
+        assert result[f"auroc_{c}_lo"] <= result[f"auroc_{c}"] <= result[f"auroc_{c}_hi"]
+
+
 def test_predict_ensemble_stacks_members(synthetic):
     from ptbxl_reliable.train import predict_ensemble
 

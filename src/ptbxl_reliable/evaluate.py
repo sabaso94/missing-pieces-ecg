@@ -9,8 +9,12 @@ from ptbxl_reliable.metrics import bootstrap_ci, brier, ece, macro_auroc, per_cl
 from ptbxl_reliable.uncertainty import ensemble_mean, mutual_information, predictive_entropy
 
 
-def evaluate(y: np.ndarray, probs: np.ndarray, patient_ids: np.ndarray, n_boot: int = 1000) -> dict[str, float]:
+def evaluate(
+    y: np.ndarray, probs: np.ndarray, patient_ids: np.ndarray, n_boot: int = 1000, per_class_ci: bool = False
+) -> dict[str, float]:
     """Metrics of an ensemble's predictions `probs` (M, N, C), with patient-level 95% CIs.
+
+    Per-class AUROCs get CIs only with `per_class_ci` (five more bootstraps; used for the E1 baseline).
 
     ECE gets no CI. Binned ECE is biased upward, and more so on a bootstrap resample (only
     ~63% unique records), so its percentile interval can sit entirely above the point estimate.
@@ -23,8 +27,12 @@ def evaluate(y: np.ndarray, probs: np.ndarray, patient_ids: np.ndarray, n_boot: 
         point, lo, hi = bootstrap_ci(metric, y, p, patient_ids, n_boot=n_boot)
         result.update({name: point, f"{name}_lo": lo, f"{name}_hi": hi})
     result["ece"] = ece(y, p)
-    for cls, auc in zip(SUPERCLASSES, per_class_auroc(y, p)):
+    for c, (cls, auc) in enumerate(zip(SUPERCLASSES, per_class_auroc(y, p))):
         result[f"auroc_{cls}"] = float(auc)
+        if per_class_ci:
+            class_auroc = lambda y_, p_, c=c: per_class_auroc(y_, p_)[c]  # noqa: E731
+            _, lo, hi = bootstrap_ci(class_auroc, y, p, patient_ids, n_boot=n_boot)
+            result.update({f"auroc_{cls}_lo": lo, f"auroc_{cls}_hi": hi})
     result["mean_entropy"] = float(predictive_entropy(p).mean())
     result["mean_mi"] = float(mutual_information(probs).mean())
     return result

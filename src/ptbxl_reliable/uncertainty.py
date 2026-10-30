@@ -47,7 +47,10 @@ def risk_coverage(
     """Performance when the model only answers on its most certain records.
 
     For each coverage level, keep the ceil(coverage * N) records with the lowest uncertainty
-    and score them. If uncertainty is useful, performance rises as coverage falls.
+    and score them. The risk is the Brier score on the kept records: if uncertainty is useful,
+    it falls with coverage. Macro-AUROC on the kept records is reported for reference only; it is
+    not a selective-prediction risk, because it measures ranking within a subset whose class mix
+    and difficulty change with coverage (confident records are mostly easy negatives).
     """
     order = np.argsort(uncertainty, kind="stable")
     rows = []
