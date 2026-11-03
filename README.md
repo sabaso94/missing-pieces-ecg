@@ -8,6 +8,7 @@ This repository studies those two questions on PTB-XL, a public dataset of 21,79
 - **Uncertainty:** deep ensembles of five networks (Lakshminarayanan et al., 2017). From the ensemble come predictive entropy (total uncertainty), mutual information (the part due to the model) and risk–coverage curves.
 - **Calibration:** reliability diagrams, ECE and the Brier score.
 - **Subgroup reliability:** discrimination and calibration by sex and age, with patient-level bootstrap tests of the gaps between groups (E3).
+- **Monitoring after deployment:** whether a statistical test notices that the patient population has changed, and whether that change actually hurts the model (E4).
 
 Every model performance number is computed on the official PTB-XL test fold. Confidence intervals are 95% intervals from a bootstrap that resamples patients, not individual ECGs, because one patient can have several recordings.
 
@@ -118,6 +119,23 @@ The gaps are tested directly with a bootstrap that resamples patients from both 
 - **The model's uncertainty rises with its error.** Mean predictive entropy grows from 0.16 (<40) to 0.33 (≥80), so the ensemble signals lower confidence in the group where it performs worst.
 - **Comparing groups needs care.** Subgroup AUROC is compared between single groups (here against the largest age group) rather than against "everyone else". AUROC computed over pooled groups also rewards separating those groups from each other, which inflates it.
 
+### E4: detecting a population shift
+
+After deployment the mix of patients can change without anyone noticing. Can a test on the model's unlabeled inputs and outputs tell, and how many ECGs does it need?
+
+The validation fold is the reference. Simulated deployment batches are drawn from the test fold, with a share of each batch (25%, 50% or 100%) taken from one subgroup: patients aged 80 and over (15% of the test fold), women (49%) or recordings from site 0 (22%). Batches with no subgroup share measure false alarms. Each setting is repeated 100 times. Two tests, both at α = 0.05:
+
+- **Outputs:** a Kolmogorov–Smirnov test per class on the 12-lead ensemble's predicted probabilities, Bonferroni-corrected over the five classes (Rabanser et al., 2019).
+- **Features:** a kernel two-sample test (MMD, Gretton et al., 2012) on the network's internal features (one ensemble member, reduced to 32 dimensions by PCA fitted on the reference), with 200 permutations.
+
+![E4 shift detection](figures/e4_detection.png)
+
+- **False alarms stay at the nominal level:** 1–6% of unshifted batches are flagged, for both tests and every batch size.
+- **Older patients and site 0 are caught quickly.** When half of each batch comes from patients aged 80+, 88–89% of batches of 50 ECGs are already flagged. A 25% share needs about 500 ECGs for 80% detection, for both subgroups.
+- **A shift towards women is almost invisible.** Batches made only of women are flagged in 46% of cases at 500 ECGs and 78–86% at 1,000; with a 50% share, never more than 9%. The model's Brier score is nonetheless worse on these batches (+0.006), in line with the sex gap in E3. Sex can be read from a 12-lead ECG (AUC 0.92, Strodthoff et al., 2021), yet this shift barely registers in the diagnostic model's outputs or features.
+- **An alarm is not the same as harm.** Batches from site 0 are flagged as reliably as batches of older patients, but the model does better on them (Brier −0.018), while on older patients it does worse (+0.030). A shift test says *that* something changed, not whether it matters; E5 estimates the second part.
+- **Features and outputs perform almost the same.** The feature test is slightly more sensitive at small shares (for example 49% vs 38% of batches flagged, aged 80+, 25% share, 100 ECGs), never by a large margin.
+
 ## Limitations and next steps
 
 - **One dataset, no external validation.** All results come from PTB-XL's own test fold. Validation on an independent cohort is the obvious next step.
@@ -160,4 +178,6 @@ figures/              the figures above
 
 - Wagner, P. et al. (2020). PTB-XL, a large publicly available electrocardiography dataset. *Scientific Data* 7, 154.
 - Strodthoff, N., Wagner, P., Schaeffter, T., Samek, W. (2021). Deep learning for ECG analysis: benchmarks and insights from PTB-XL. *IEEE Journal of Biomedical and Health Informatics* 25(5), 1519–1528.
+- Rabanser, S., Günnemann, S., Lipton, Z. C. (2019). Failing loudly: an empirical study of methods for detecting dataset shift. *NeurIPS*.
+- Gretton, A., Borgwardt, K. M., Rasch, M. J., Schölkopf, B., Smola, A. (2012). A kernel two-sample test. *Journal of Machine Learning Research* 13, 723–773.
 - Lakshminarayanan, B., Pritzel, A., Blundell, C. (2017). Simple and scalable predictive uncertainty estimation using deep ensembles. *NeurIPS*.

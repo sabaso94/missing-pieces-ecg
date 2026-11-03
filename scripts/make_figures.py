@@ -163,8 +163,43 @@ def e3_subgroups() -> None:
     _save(fig, "e3_subgroups.png")
 
 
+def e4_detection() -> None:
+    table = pd.read_csv(RESULTS / "e4_detection.csv")
+    shifts = [("age_80plus", "Aged 80+"), ("female", "Women"), ("site0", "Site 0")]
+    detectors = [("mmd_features", "-", "features (MMD)"), ("ks_outputs", "--", "outputs (KS)")]
+    sizes = sorted(table["batch_size"].unique())
+    null = table[table["shift"] == "none"]
+
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.3), sharey=True)
+    for ax, (shift, title) in zip(axes, shifts):
+        rows = table[table["shift"] == shift]
+        for k, lam in enumerate(sorted(rows["lam"].unique())):
+            for detector, style, det_label in detectors:
+                line = rows[(rows["lam"] == lam) & (rows["detector"] == detector)]
+                label = f"{lam:.0%} of batch from subgroup" if detector == "mmd_features" else None
+                ax.plot(line["batch_size"], line["detection_rate"], style, color=SERIES[k], marker="o",
+                        markersize=3.5, label=label)
+        false_alarm = null.groupby("batch_size")["detection_rate"].max()
+        ax.plot(false_alarm.index, false_alarm.values, ":", color=MUTED, label="no shift (false alarms)")
+        harm = rows[(rows["lam"] == 1.0)]["brier_change"].mean()
+        ax.set_title(f"{title}\nBrier change at 100%: {harm:+.3f}", loc="left")
+        ax.set_xscale("log")
+        ax.set_xticks(sizes, [str(n) for n in sizes])
+        ax.minorticks_off()
+        ax.set(xlabel="ECGs per deployment batch", ylim=(-0.03, 1.03))
+    axes[0].set_ylabel("share of batches flagged")
+    axes[0].plot([], [], "-", color=INK_2, label="solid: features (MMD)")
+    axes[0].plot([], [], "--", color=INK_2, label="dashed: outputs (KS)")
+    # Legend below the panels: seven entries do not fit in one row beside the title.
+    fig.suptitle("E4: share of deployment batches flagged as shifted (alpha = 0.05)", x=0.01, y=1.08,
+                 ha="left", color=INK, fontsize=12)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.02), ncol=3)
+    _save(fig, "e4_detection.png")
+
+
 def main() -> None:
-    for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups]:
+    for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups, e4_detection]:
         make()
         print("wrote", make.__name__)
 
