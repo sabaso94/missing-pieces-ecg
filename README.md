@@ -8,7 +8,7 @@ This repository studies those two questions on PTB-XL, a public dataset of 21,79
 - **Uncertainty:** deep ensembles of five networks (Lakshminarayanan et al., 2017). From the ensemble come predictive entropy (total uncertainty), mutual information (the part due to the model) and risk–coverage curves.
 - **Calibration:** reliability diagrams, ECE and the Brier score.
 - **Subgroup reliability:** discrimination and calibration by sex and age, with patient-level bootstrap tests of the gaps between groups (E3).
-- **Monitoring after deployment:** whether a statistical test notices that the patient population has changed, and whether that change actually hurts the model (E4).
+- **Monitoring after deployment:** whether a statistical test notices that the patient population has changed (E4), and whether the model's performance can be estimated without labels (E5).
 
 Every model performance number is computed on the official PTB-XL test fold. Confidence intervals are 95% intervals from a bootstrap that resamples patients, not individual ECGs, because one patient can have several recordings.
 
@@ -136,6 +136,31 @@ The validation fold is the reference. Simulated deployment batches are drawn fro
 - **An alarm is not the same as harm.** Batches from site 0 are flagged as reliably as batches of older patients, but the model does better on them (Brier −0.018), while on older patients it does worse (+0.030). A shift test says *that* something changed, not whether it matters; E5 estimates the second part.
 - **Features and outputs perform almost the same.** The feature test is slightly more sensitive at small shares (for example 49% vs 38% of batches flagged, aged 80+, 25% share, 100 ECGs), never by a large margin.
 
+### E5: estimating performance without labels
+
+A shift test says that something changed, not whether the model got worse. With no labels after deployment, can the model's own predictions tell how well it is doing?
+
+Three estimators, each fitted on the validation fold and then applied to unlabeled test data:
+
+- **AC** (average confidence): if the model is calibrated, it is right as often as it is confident. The same idea gives an expected Brier score, the mean of p(1 − p).
+- **ATC** (Garg et al., 2022): a confidence threshold per class, chosen on validation data so that the share of records above it equals the accuracy.
+- **DoC** (Guillory et al., 2021): validation accuracy, shifted by the change in average confidence.
+
+The target is the accuracy of the 0.5-threshold decision, averaged over the five classes, and the Brier score. Scenarios: the 12-lead ensemble on ten subgroups of the test fold (age, sex, the three large sites, everyone), and the two E2a strategies with leads removed. For the lead scenarios the estimators are fitted on 12-lead validation predictions, because labels for the shifted input would not exist.
+
+![E5 label-free estimation](figures/e5_labelfree.png)
+
+| Mean absolute error (max) | AC | ATC | DoC | AC, Brier score |
+|---|---|---|---|---|
+| 12-lead model, 10 subgroups | 0.004 (0.013) | 0.008 (0.016) | 0.005 (0.012) | 0.004 (0.007) |
+| Lead-dropout model, 4 lead setups | 0.014 (0.016) | 0.002 (0.003) | 0.002 (0.004) | 0.010 (0.013) |
+| 12-lead model, 3 reduced lead setups | 0.138 (0.156) | 0.056 (0.098) | 0.138 (0.157) | 0.077 (0.084) |
+
+- **For a calibrated model the estimates are as good as the labels allow.** AC and DoC fall inside the 95% CI of the true accuracy for all ten subgroups (ATC for eight), and the Brier estimate inside its CI for all ten.
+- **This tells the harmful shift from the harmless one in E4.** Estimated accuracy is 0.852 for patients aged 80+ (true 0.851) and 0.922 for site 0 (true 0.917), so a monitor combining E4 and E5 would flag both shifts but report a drop only for the first.
+- **The lead-dropout model stays estimable when leads are removed.** ATC and DoC are within 0.004 of the true accuracy for every lead setup. AC over-estimates by a near-constant 0.012–0.016, because this model is slightly over-confident already on 12 leads; ATC and DoC remove that offset through the validation labels.
+- **For the 12-lead model on fewer leads, every estimate breaks.** On lead I its true accuracy is 0.563; AC and DoC estimate 0.72, ATC 0.52, and the estimated Brier score is 0.18 against a true 0.25. AC and DoC still register a fall from 0.89, but only half of it, and ATC errs in both directions (0.47 against a true 0.57 on lead II). As in E2a, the model's confidence is only informative on the kind of input it was trained for.
+
 ## Limitations and next steps
 
 - **One dataset, no external validation.** All results come from PTB-XL's own test fold. Validation on an independent cohort is the obvious next step.
@@ -180,4 +205,6 @@ figures/              the figures above
 - Strodthoff, N., Wagner, P., Schaeffter, T., Samek, W. (2021). Deep learning for ECG analysis: benchmarks and insights from PTB-XL. *IEEE Journal of Biomedical and Health Informatics* 25(5), 1519–1528.
 - Rabanser, S., Günnemann, S., Lipton, Z. C. (2019). Failing loudly: an empirical study of methods for detecting dataset shift. *NeurIPS*.
 - Gretton, A., Borgwardt, K. M., Rasch, M. J., Schölkopf, B., Smola, A. (2012). A kernel two-sample test. *Journal of Machine Learning Research* 13, 723–773.
+- Garg, S., Balakrishnan, S., Lipton, Z. C., Neyshabur, B., Sedghi, H. (2022). Leveraging unlabeled data to predict out-of-distribution performance. *ICLR*.
+- Guillory, D., Shankar, V., Ebrahimi, S., Darrell, T., Schmidt, L. (2021). Predicting with confidence on unseen distributions. *ICCV*.
 - Lakshminarayanan, B., Pritzel, A., Blundell, C. (2017). Simple and scalable predictive uncertainty estimation using deep ensembles. *NeurIPS*.

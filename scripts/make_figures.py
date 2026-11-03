@@ -198,8 +198,46 @@ def e4_detection() -> None:
     _save(fig, "e4_detection.png")
 
 
+def e5_labelfree() -> None:
+    table = pd.read_csv(RESULTS / "e5_labelfree.csv")
+    groups = [("e1", "o", "12-lead model, subgroups"), ("e2a_dropout", "s", "lead-dropout model, leads removed"),
+              ("e2a_naive", "^", "12-lead model, leads removed")]
+    methods = [("ac_acc", "AC"), ("atc_acc", "ATC"), ("doc_acc", "DoC")]
+
+    fig, (ax_all, ax_zoom, ax_brier) = plt.subplots(1, 3, figsize=(12, 3.9))
+    for model, marker, model_label in groups:
+        rows = table[table["model"] == model]
+        for k, (column, method) in enumerate(methods):
+            # DoC is hollow: it often lands exactly on AC, which would otherwise be hidden.
+            style = dict(color=SERIES[k], markersize=6 if method == "DoC" else 5,
+                         markerfacecolor="none" if method == "DoC" else SERIES[k])
+            ax_all.plot(rows["true_acc"], rows[column], marker, label=method if model == "e1" else None, **style)
+            if model != "e2a_naive":
+                ax_zoom.plot(rows["true_acc"], rows[column], marker, **style)
+        ax_brier.plot(rows["true_brier"], rows["ac_brier"], marker, color=SERIES[0], markersize=5)
+        ax_all.plot([], [], marker, color=MUTED, label=model_label)
+    calibrated = table[table["model"] != "e2a_naive"]
+    ax_zoom.errorbar(calibrated["true_acc"], calibrated["true_acc"], xerr=[
+        calibrated["true_acc"] - calibrated["true_acc_lo"], calibrated["true_acc_hi"] - calibrated["true_acc"]],
+        fmt="none", ecolor=AXIS, elinewidth=1)
+
+    for ax, lims in [(ax_all, (0.45, 0.97)), (ax_zoom, (0.82, 0.95)), (ax_brier, (0.04, 0.27))]:
+        ax.plot(lims, lims, color=MUTED, linewidth=1, zorder=0)
+        ax.set(xlim=lims, ylim=lims)
+    ax_all.set(xlabel="true accuracy", ylabel="estimated accuracy", title="Accuracy, all scenarios")
+    ax_zoom.set(xlabel="true accuracy (grey: 95% CI)", title="Accuracy, calibrated models only")
+    ax_brier.set(xlabel="true Brier score", ylabel="estimated Brier score (AC)", title="Brier score")
+    fig.suptitle("E5: performance estimated without labels vs the true value (test fold)", x=0.01, y=1.02,
+                 ha="left", color=INK, fontsize=12)
+    handles, labels = ax_all.get_legend_handles_labels()
+    fig.tight_layout()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=6)
+    _save(fig, "e5_labelfree.png")
+
+
 def main() -> None:
-    for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups, e4_detection]:
+    for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups, e4_detection,
+                 e5_labelfree]:
         make()
         print("wrote", make.__name__)
 
