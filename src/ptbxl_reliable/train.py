@@ -64,6 +64,20 @@ def predict(
     return np.concatenate(out)
 
 
+@torch.no_grad()
+def extract_features(
+    model: ECGResNet, x: np.ndarray, mask_name: str, batch_size: int = 512, device: str = "cuda"
+) -> np.ndarray:
+    """Pooled ECG features (N, 256) of one model, with the leads of `mask_name` present."""
+    model.eval().to(device)
+    mask = torch.from_numpy(config_mask(mask_name)).to(device)
+    out = []
+    for start in range(0, len(x), batch_size):
+        xb = torch.from_numpy(x[start : start + batch_size]).to(device)
+        out.append(model.features(xb, mask.expand(len(xb), -1)).cpu().numpy())
+    return np.concatenate(out)
+
+
 def predict_ensemble(
     models: list[ECGResNet],
     x: np.ndarray,

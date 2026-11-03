@@ -68,13 +68,21 @@ class ECGResNet(nn.Module):
             nn.Linear(128, n_classes),
         )
 
+    def features(self, x: torch.Tensor, lead_mask: torch.Tensor) -> torch.Tensor:
+        """Pooled ECG features (B, 2 * width): what the network learned from the signal itself.
+
+        The lead mask and metadata are left out, so these are comparable across records and are
+        what the shift tests in E4 look at.
+        """
+        h = self.stages(self.stem(apply_mask(x, lead_mask)))
+        return torch.cat([h.mean(dim=2), h.amax(dim=2)], dim=1)
+
     def forward(self, x: torch.Tensor, lead_mask: torch.Tensor, tab: torch.Tensor | None = None) -> torch.Tensor:
         """Logits (B, n_classes). Absent leads are zeroed here, so callers can't forget to."""
         if self.n_tab > 0 and tab is None:
             raise ValueError("this model was built with a tabular branch and needs `tab`")
 
-        h = self.stages(self.stem(apply_mask(x, lead_mask)))
-        features = [h.mean(dim=2), h.amax(dim=2), lead_mask.float()]
+        features = [self.features(x, lead_mask), lead_mask.float()]
         if self.n_tab > 0:
             features.append(self.tab_mlp(tab))
         return self.head(torch.cat(features, dim=1))
