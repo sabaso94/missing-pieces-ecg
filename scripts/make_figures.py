@@ -202,6 +202,10 @@ def e5_labelfree() -> None:
     table = pd.read_csv(RESULTS / "e5_labelfree.csv")
     groups = [("e1", "o", "12-lead model, subgroups"), ("e2a_dropout", "s", "lead-dropout model, leads removed"),
               ("e2a_naive", "^", "12-lead model, leads removed")]
+    held_out = RESULTS / "e6_labelfree.csv"  # E6 adds the models that never saw the site they are tested on
+    if held_out.exists():
+        table = pd.concat([table, pd.read_csv(held_out)])
+        groups.append(("e6_loso", "D", "site left out of training (E6)"))
     methods = [("ac_acc", "AC"), ("atc_acc", "ATC"), ("doc_acc", "DoC")]
 
     fig, (ax_all, ax_zoom, ax_brier) = plt.subplots(1, 3, figsize=(12, 3.9))
@@ -231,13 +235,71 @@ def e5_labelfree() -> None:
                  ha="left", color=INK, fontsize=12)
     handles, labels = ax_all.get_legend_handles_labels()
     fig.tight_layout()
-    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=6)
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=4)
     _save(fig, "e5_labelfree.png")
+
+
+def e6_sites() -> None:
+    sites = pd.read_csv(RESULTS / "e6_sites.csv").query("eval_set == 'site'")
+    diffs = pd.read_csv(RESULTS / "e6_diffs.csv").query("contrast == 'loso - control'")
+    detection = pd.read_csv(RESULTS / "e6_detection.csv")
+    models = [("e1", "E1 (all training data)"), ("control", "size-matched control"),
+              ("loso", "site left out of training")]
+    site_ids = sorted(sites["site"].unique())
+    y = np.arange(len(site_ids))[::-1]
+
+    fig, (ax_auc, ax_brier, ax_det) = plt.subplots(1, 3, figsize=(13, 3.8), gridspec_kw={"wspace": 0.3})
+    for k, (model, label) in enumerate(models):
+        rows = sites[sites["model"] == model].set_index("site").reindex(site_ids)
+        offset = 0.2 * (1 - k)
+        for ax, metric in [(ax_auc, "macro_auroc"), (ax_brier, "brier")]:
+            err = [rows[metric] - rows[f"{metric}_lo"], rows[f"{metric}_hi"] - rows[metric]]
+            ax.errorbar(rows[metric], y + offset, xerr=err, fmt="o", color=SERIES[k], markersize=5.5,
+                        elinewidth=1.5, label=label)
+    n = sites.query("model == 'e1'").set_index("site")["n"]
+    for ax, metric, title in [(ax_auc, "macro_auroc", "Discrimination on the held-out site"),
+                              (ax_brier, "brier", "Calibration on the held-out site")]:
+        d = diffs[diffs["metric"] == metric].set_index("site")
+        for s, row_y in zip(site_ids, y):
+            # Left out minus control, written above each site's three intervals.
+            ax.text(0.01, row_y + 0.38, f"left out − control: {d.loc[s, 'diff']:+.3f} "
+                    f"[{d.loc[s, 'lo']:+.3f}, {d.loc[s, 'hi']:+.3f}]", transform=ax.get_yaxis_transform(),
+                    color=INK_2, fontsize=8.5)
+        ax.set_yticks(y, [f"site {s}\n(n={n[s]})" for s in site_ids])
+        ax.set_ylim(y.min() - 0.45, y.max() + 0.6)
+        ax.grid(axis="y", visible=False)
+        ax.set_title(title, loc="left")
+    ax_auc.set(xlabel="macro-AUROC (95% CI)")
+    ax_brier.set(xlabel="Brier score (95% CI, lower is better)")
+
+    for k, s in enumerate(site_ids):
+        rows = detection[(detection["site"] == s) & (detection["shift"] == "held-out site")]
+        for detector, style in [("mmd_features", "-"), ("ks_outputs", "--")]:
+            line = rows[rows["detector"] == detector]
+            ax_det.plot(line["batch_size"], line["detection_rate"], style, marker="o", markersize=3.5,
+                        color=[INK, INK_2, MUTED][k], label=f"site {s}" if detector == "mmd_features" else None)
+    false_alarm = detection[detection["shift"] != "held-out site"].groupby("batch_size")["detection_rate"].max()
+    ax_det.plot(false_alarm.index, false_alarm.values, ":", color=AXIS, label="no shift (other sites)")
+    ax_det.plot([], [], "-", color=INK_2, label="solid: features (MMD)")
+    ax_det.plot([], [], "--", color=INK_2, label="dashed: outputs (KS)")
+    sizes = sorted(detection["batch_size"].unique())
+    ax_det.set_xscale("log")
+    ax_det.set_xticks(sizes, [str(s) for s in sizes])
+    ax_det.minorticks_off()
+    ax_det.set(xlabel="ECGs per deployment batch", ylabel="share of batches flagged", ylim=(-0.03, 1.03))
+    ax_det.set_title("Is the new site detected? (E4 tests)", loc="left")
+    ax_det.legend(loc="center right", fontsize=8)
+
+    fig.suptitle("E6: a hospital site the model never saw (test fold, records of the held-out site)",
+                 x=0.01, y=1.04, ha="left", color=INK, fontsize=12)
+    handles, labels = ax_auc.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.02), ncol=3)
+    _save(fig, "e6_sites.png")
 
 
 def main() -> None:
     for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups, e4_detection,
-                 e5_labelfree]:
+                 e5_labelfree, e6_sites]:
         make()
         print("wrote", make.__name__)
 

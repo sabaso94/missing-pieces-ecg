@@ -9,6 +9,7 @@ This repository studies those two questions on PTB-XL, a public dataset of 21,79
 - **Calibration:** reliability diagrams, ECE and the Brier score.
 - **Subgroup reliability:** discrimination and calibration by sex and age, with patient-level bootstrap tests of the gaps between groups (E3).
 - **Monitoring after deployment:** whether a statistical test notices that the patient population has changed (E4), and whether the model's performance can be estimated without labels (E5).
+- **A hospital the model never saw:** the cost of deploying at a recording site left out of training, separated from the cost of having less training data, and whether E4 and E5 notice (E6).
 
 Every model performance number is computed on the official PTB-XL test fold. Confidence intervals are 95% intervals from a bootstrap that resamples patients, not individual ECGs, because one patient can have several recordings.
 
@@ -160,6 +161,32 @@ The target is the accuracy of the 0.5-threshold decision, averaged over the five
 - **This tells the harmful shift from the harmless one in E4.** Estimated accuracy is 0.852 for patients aged 80+ (true 0.851) and 0.922 for site 0 (true 0.917), so a monitor combining E4 and E5 would flag both shifts but report a drop only for the first.
 - **The lead-dropout model stays estimable when leads are removed.** ATC and DoC are within 0.004 of the true accuracy for every lead setup. AC over-estimates by a near-constant 0.012–0.016, because this model is slightly over-confident already on 12 leads; ATC and DoC remove that offset through the validation labels.
 - **For the 12-lead model on fewer leads, every estimate breaks.** On lead I its true accuracy is 0.563; AC and DoC estimate 0.72, ATC 0.52, and the estimated Brier score is 0.18 against a true 0.25. AC and DoC still register a fall from 0.89, but only half of it, and ATC errs in both directions (0.47 against a true 0.57 on lead II). As in E2a, the model's confidence is only informative on the kind of input it was trained for.
+
+### E6: a hospital site the model never saw
+
+What does it cost to deploy at a hospital that contributed no training data, and do the monitoring tools of E4 and E5 catch it?
+
+PTB-XL records which site each ECG comes from. For each of the three large sites (8,671, 6,242 and 5,019 ECGs), two new ensembles are trained:
+
+- **Site left out:** trained on folds 1–8 and selected on fold 9, both without that site. Its signals are standardised with statistics from its own training set.
+- **Size-matched control:** trained on a random subset of folds 1–8 of the same size, all sites included, and selected on the full fold 9. Leaving a site out also removes training data (45% of it, for site 0), so the contrast that measures "never saw the site" is left-out minus control, not left-out minus E1.
+
+All three models (E1, control, left-out) are evaluated on the test-fold ECGs of the held-out site (483, 598 and 867 records). Differences between two models on the same records get a paired patient bootstrap.
+
+![E6 held-out sites](figures/e6_sites.png)
+
+| Held-out site | Left out − control, macro-AUROC | Left out − control, Brier | Control − E1, macro-AUROC |
+|---|---|---|---|
+| Site 0 | −0.006 [−0.015, +0.002] | +0.006 [+0.003, +0.009] | −0.008 [−0.014, −0.002] |
+| Site 1 | −0.006 [−0.011, −0.001] | +0.005 [+0.002, +0.008] | −0.004 [−0.008, +0.001] |
+| Site 2 | −0.005 [−0.009, −0.001] | +0.001 [−0.001, +0.003] | −0.002 [−0.005, +0.002] |
+
+- **Never seeing a site costs about 0.005 macro-AUROC.** The loss is consistent across the three sites and excludes zero for two of them; the Brier score is worse by 0.005–0.006 at sites 0 and 1. On the other sites the left-out model is as good as the control, so the cost is specific to the new site.
+- **Less training data costs about as much again.** For site 0, whose removal takes away 45% of the training set, the control already loses 0.008 against E1; the left-out model's total loss of 0.014 is roughly half data, half site.
+- **Differences between sites are larger than either cost.** Even E1, which trained on all three sites, reaches 0.909 on site 2 against 0.941 on the other sites. Which hospital a model is tested at matters more here than whether it trained there.
+- **The new site is detected quickly.** With the left-out model's fold 9 as reference, the E4 tests flag every batch from site 0 already at 50 ECGs, site 2 at 100 ECGs (feature test; 94% for the output test) and site 1 at 200 ECGs (93–96%). Batches from the sites the model did see are flagged 1–8% of the time; this rises to 10–14% for the largest batches in the site-2 setting, where batches of 500–1,000 ECGs are drawn with replacement from only 1,291 records and repeat many of them.
+- **Label-free estimates are less exact on an unseen site.** The mean absolute error of the E5 estimators rises to 0.009 (AC), 0.017 (ATC) and 0.014 (DoC), against 0.004–0.008 for subgroups of sites the model saw (diamonds in the E5 figure). At site 2 the left-out model is over-confident: AC over-estimates its accuracy by 0.016 and under-estimates its Brier score (0.082 against 0.093), so the small loss there would go unnoticed without labels.
+- **Site 0 is also the site that almost never records height (E2b).** A model deployed there would meet both problems at once: a site it never saw (E6) and missing metadata (E2b).
 
 ## Limitations and next steps
 
