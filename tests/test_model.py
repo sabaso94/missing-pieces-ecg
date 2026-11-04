@@ -56,3 +56,19 @@ def test_existing_checkpoint_still_loads():
     if not path.exists():
         pytest.skip("checkpoints are not part of the repo")
     ECGResNet().load_state_dict(torch.load(path, map_location="cpu"), strict=True)
+
+
+def test_time_mask_zeroes_gap_and_channel_marks_it():
+    torch.manual_seed(0)
+    x, mask = torch.randn(2, 12, 1000), _mask("all12", 2)
+    tm = torch.ones(2, 1000, dtype=torch.bool)
+    tm[:, 200:500] = False
+    x_other = x.clone()
+    x_other[:, :, 200:500] = torch.randn(2, 12, 300)
+    x_flat = x.clone()
+    x_flat[:, :, 200:500] = 0
+    plain, chan = ECGResNet().eval(), ECGResNet(time_mask_channel=True).eval()
+    with torch.no_grad():
+        assert torch.allclose(plain(x, mask, time_mask=tm), plain(x_other, mask, time_mask=tm))
+        assert torch.allclose(plain(x, mask, time_mask=tm), plain(x_flat, mask))  # gap == flat line
+        assert not torch.allclose(chan(x, mask, time_mask=tm), chan(x_flat, mask))  # channel tells them apart

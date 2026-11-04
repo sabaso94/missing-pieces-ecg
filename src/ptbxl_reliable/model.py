@@ -38,13 +38,18 @@ class ECGResNet(nn.Module):
     stages. Global average and max pooling make the model work for any recording length.
     The pooled ECG features are concatenated with the lead mask (so the head knows which leads
     were available) and, optionally, with an embedding of tabular metadata (late fusion).
+    With `time_mask_channel`, the stem gets one extra input channel that marks where the signal
+    is present, so the network can tell a gap from a flat line.
     """
 
-    def __init__(self, n_leads: int = 12, n_classes: int = 5, width: int = 128, n_tab: int = 0):
+    def __init__(
+        self, n_leads: int = 12, n_classes: int = 5, width: int = 128, n_tab: int = 0, time_mask_channel: bool = False
+    ):
         super().__init__()
         self.n_tab = n_tab
+        self.time_mask_channel = time_mask_channel
         self.stem = nn.Sequential(
-            nn.Conv1d(n_leads, width, kernel_size=15, stride=2, padding=7, bias=False),
+            nn.Conv1d(n_leads + int(time_mask_channel), width, kernel_size=15, stride=2, padding=7, bias=False),
             nn.BatchNorm1d(width),
             nn.ReLU(),
         )
@@ -68,21 +73,36 @@ class ECGResNet(nn.Module):
             nn.Linear(128, n_classes),
         )
 
-    def features(self, x: torch.Tensor, lead_mask: torch.Tensor) -> torch.Tensor:
+    def features(
+        self, x: torch.Tensor, lead_mask: torch.Tensor, time_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Pooled ECG features (B, 2 * width): what the network learned from the signal itself.
 
         The lead mask and metadata are left out, so these are comparable across records and are
-        what the shift tests in E4 look at.
+        what the shift tests in E4 look at. `time_mask` (B, T) is False inside gaps, which are
+        zeroed on every lead.
         """
-        h = self.stages(self.stem(apply_mask(x, lead_mask)))
+        x = apply_mask(x, lead_mask)
+        if time_mask is not None:
+            x = x * time_mask[:, None, :].to(x.dtype)
+        if self.time_mask_channel:
+            present = torch.ones_like(x[:, :1]) if time_mask is None else time_mask[:, None, :].to(x.dtype)
+            x = torch.cat([x, present], dim=1)
+        h = self.stages(self.stem(x))
         return torch.cat([h.mean(dim=2), h.amax(dim=2)], dim=1)
 
-    def forward(self, x: torch.Tensor, lead_mask: torch.Tensor, tab: torch.Tensor | None = None) -> torch.Tensor:
-        """Logits (B, n_classes). Absent leads are zeroed here, so callers can't forget to."""
+    def forward(
+        self,
+        x: torch.Tensor,
+        lead_mask: torch.Tensor,
+        tab: torch.Tensor | None = None,
+        time_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Logits (B, n_classes). Absent leads and gaps are zeroed here, so callers can't forget to."""
         if self.n_tab > 0 and tab is None:
             raise ValueError("this model was built with a tabular branch and needs `tab`")
 
-        features = [self.features(x, lead_mask), lead_mask.float()]
+        features = [self.features(x, lead_mask, time_mask), lead_mask.float()]
         if self.n_tab > 0:
             features.append(self.tab_mlp(tab))
         return self.head(torch.cat(features, dim=1))

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ptbxl_reliable import train
+from ptbxl_reliable import gaps, train
 from ptbxl_reliable.data import PreparedData
 from ptbxl_reliable.evaluate import evaluate, load_preds, save_preds
 from ptbxl_reliable.metrics import macro_auroc
@@ -106,3 +106,9 @@ def test_predict_ensemble_stacks_members(synthetic):
     probs = predict_ensemble(models, synthetic.x[:6], "limb6", device="cpu")
     assert probs.shape == (2, 6, 5)
     np.testing.assert_allclose(probs[1], predict(models[1], synthetic.x[:6], "limb6", device="cpu"))
+
+
+def test_gap_augmented_training_runs(synthetic):
+    model, history = train_model(_cfg(lead_mode="dropout", gap_augment=True, time_mask_channel=True), synthetic)
+    tm = gaps.fixed_gap_masks(5, 1000, 0.3, "one", seed=0)
+    assert predict(model, synthetic.x[:5], "leadI", time_mask=tm, device="cpu").shape == (5, 5)
