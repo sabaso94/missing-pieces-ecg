@@ -252,7 +252,10 @@ E1's gaps are +0.018 [+0.004, +0.033] (men − women) and −0.036 [−0.064, �
 - **Metadata is a weak modality here.** Four demographic fields add little to a 12-lead ECG. Modalities that carry more independent information, such as clinical history or lab values, would test fusion under missingness more strongly.
 - **Age and sex play two roles.** They are inputs to the fusion model and also define the subgroups in E3. The primary subgroup analysis therefore uses the ECG-only model.
 - **No correction for multiple comparisons.** E3 reports 6 gaps for each of 4 models with unadjusted 95% intervals.
-- **Simulated lead removal.** Removing leads from 12-lead recordings is not the same as recording with a single-lead device, whose signal quality and electrode placement differ.
+- **Simulated missing signal.** Removing leads from 12-lead recordings is not the same as recording with a single-lead device, whose signal quality and electrode placement differ. In the same way, the gaps in E7 are cut out of clean recordings; a real loss of contact also brings noise and baseline drift around the gap.
+- **Shift batches are resampled from one fold.** E4 and E6 draw their deployment batches with replacement from a test fold of 2,158 ECGs, so large batches repeat records and the repetitions are not independent.
+- **Site stands for several things at once.** In E6 a recording site differs from the others in hospital, device and recording period together; the experiment cannot say which of these costs the model.
+- **Group recalibration needs the group.** The per-sex and per-age recalibration in E8 requires sex and age at prediction time. PTB-XL always records them; a deployment setting may not.
 
 ## Reproduce
 
@@ -260,7 +263,7 @@ E1's gaps are +0.018 [+0.004, +0.033] (men − women) and −0.036 [−0.064, �
 python -m venv .venv
 .venv/bin/pip install --extra-index-url https://download.pytorch.org/whl/cu118 -r requirements.txt
 .venv/bin/pip install -e .
-DEVICE=cuda:0 bash scripts/run_all.sh
+DEVICE=cuda:1 bash scripts/run_all.sh
 ```
 
 `run_all.sh` runs the whole pipeline in order:
@@ -268,14 +271,16 @@ DEVICE=cuda:0 bash scripts/run_all.sh
 1. downloads PTB-XL from PhysioNet;
 2. runs the tests;
 3. runs the missingness analysis;
-4. trains and evaluates every ensemble (E1, E2a, E2b);
+4. trains and evaluates the ensembles of E1, E2a and E2b;
 5. computes the subgroup analysis (E3);
-6. draws the figures.
+6. runs the follow-up experiments E4 to E8, training the ensembles they need;
+7. draws the figures.
 
 Ensembles that already have checkpoints are loaded instead of retrained. Results are written to `results/` and figures to `figures/`; up to GPU nondeterminism, they match the committed ones.
 
 ```
-src/ptbxl_reliable/   data loading, lead masks, model, training, metrics, uncertainty, metadata features, subgroups
+src/ptbxl_reliable/   data loading, lead masks, time gaps, model, training, metrics, uncertainty, metadata features,
+                      subgroups, shift tests, label-free estimates, recalibration
 scripts/              one script per experiment, plus figures and run_all.sh
 tests/                unit tests (pytest), runnable without the dataset
 results/              all reported numbers as CSV
