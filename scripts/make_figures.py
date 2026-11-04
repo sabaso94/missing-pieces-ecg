@@ -297,9 +297,45 @@ def e6_sites() -> None:
     _save(fig, "e6_sites.png")
 
 
+def e7_gaps() -> None:
+    table = pd.read_csv(RESULTS / "e7_gaps.csv")
+    models = [("e2a_dropout", "lead dropout, no gap training (E2a)"), ("e7_gaps_zero", "gap training, zero-filled"),
+              ("e7_gaps_channel", "gap training + presence channel")]
+    patterns = [("one", "one gap"), ("many", "many 0.5 s gaps")]
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6.4), sharex=True, sharey="row")
+    for row, (leads, leads_label) in enumerate([("all12", "12 leads"), ("leadI", "lead I")]):
+        for col, (pattern, pattern_label) in enumerate(patterns):
+            ax = axes[row, col]
+            # Fraction 0 is evaluated once ("none") and starts both patterns' curves.
+            rows = table[(table["leads"] == leads) & table["pattern"].isin(["none", pattern])].sort_values("fraction")
+            if leads == "all12":
+                e1 = rows[rows["model"] == "e1"]
+                ax.plot(e1["fraction"], e1["macro_auroc"], color=MUTED, linewidth=1.5, marker="o", markersize=3,
+                        label="E1, 12-lead model (no gap training)")
+            for k, (model, label) in enumerate(models):
+                line = rows[rows["model"] == model]
+                ax.plot(line["fraction"], line["macro_auroc"], color=SERIES[k], marker="o", markersize=3.5,
+                        label=label)
+            ax.set_title(f"{leads_label}, {pattern_label}", loc="left")
+            ax.xaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0))
+            if row == 1:
+                ax.set_xlabel("share of the recording missing")
+            if col == 0:
+                ax.set_ylabel("macro-AUROC")
+    # No CI bands: the models are scored on the same records, so their separate intervals overlap far more
+    # than the paired differences do; those are tested in results/e7_diffs.csv and the README table.
+    fig.suptitle("E7: gaps in time on the test fold (all leads drop out together)", x=0.01, y=1.0, ha="left",
+                 color=INK, fontsize=12)
+    fig.tight_layout()
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=2)
+    _save(fig, "e7_gaps.png")
+
+
 def main() -> None:
     for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups, e4_detection,
-                 e5_labelfree, e6_sites]:
+                 e5_labelfree, e6_sites, e7_gaps]:
         make()
         print("wrote", make.__name__)
 

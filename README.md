@@ -4,7 +4,7 @@ How does a deep ECG classifier behave when part of its input is missing, and whe
 
 This repository studies those two questions on PTB-XL, a public dataset of 21,799 clinical 12-lead ECGs (Wagner et al., 2020). It covers:
 
-- **Missing modalities:** ECG leads that are absent at test time (E2a), and patient metadata that is missing in a systematic, non-random way (E2b).
+- **Missing modalities:** ECG leads that are absent at test time (E2a), patient metadata that is missing in a systematic, non-random way (E2b), and stretches of signal lost in time, as with a wearable (E7).
 - **Uncertainty:** deep ensembles of five networks (Lakshminarayanan et al., 2017). From the ensemble come predictive entropy (total uncertainty), mutual information (the part due to the model) and risk–coverage curves.
 - **Calibration:** reliability diagrams, ECE and the Brier score.
 - **Subgroup reliability:** discrimination and calibration by sex and age, with patient-level bootstrap tests of the gaps between groups (E3).
@@ -187,6 +187,30 @@ All three models (E1, control, left-out) are evaluated on the test-fold ECGs of 
 - **The new site is detected quickly.** With the left-out model's fold 9 as reference, the E4 tests flag every batch from site 0 already at 50 ECGs, site 2 at 100 ECGs (feature test; 94% for the output test) and site 1 at 200 ECGs (93–96%). Batches from the sites the model did see are flagged 1–8% of the time; this rises to 10–14% for the largest batches in the site-2 setting, where batches of 500–1,000 ECGs are drawn with replacement from only 1,291 records and repeat many of them.
 - **Label-free estimates are less exact on an unseen site.** The mean absolute error of the E5 estimators rises to 0.009 (AC), 0.017 (ATC) and 0.014 (DoC), against 0.004–0.008 for subgroups of sites the model saw (diamonds in the E5 figure). At site 2 the left-out model is over-confident: AC over-estimates its accuracy by 0.016 and under-estimates its Brier score (0.082 against 0.093), so the small loss there would go unnoticed without labels.
 - **Site 0 is also the site that almost never records height (E2b).** A model deployed there would meet both problems at once: a site it never saw (E6) and missing metadata (E2b).
+
+### E7: gaps in time
+
+A wearable that loses skin contact drops the signal for a while, on every lead at once. How much does that hurt, does training with gaps help, and does the model need to be told where the gaps are?
+
+Gaps are simulated on the test fold as either one contiguous gap or many 0.5 s gaps at random positions, covering 10–50% of the 10 s recording, and filled with zeros (the per-lead training mean). Gap positions are fixed by a seed, so every model sees the same gaps. Two new ensembles are trained like E2a's lead-dropout model, with gaps added: half of the training records keep the full signal, the other half lose up to 60% in a random pattern.
+
+- **Zero-filled:** a gap looks exactly like a flat line.
+- **Presence channel:** one extra input channel marks where the signal is present.
+
+Both are selected on validation data with and without gaps. They are compared with E2a's lead-dropout model and with E1, neither of which saw gaps in training.
+
+![E7 gaps in time](figures/e7_gaps.png)
+
+| 30% of the recording missing | Gap training (zero-filled) − E2a lead dropout, macro-AUROC | Presence channel − zero-filled, macro-AUROC |
+|---|---|---|
+| 12 leads, one gap | +0.004 [+0.002, +0.006] | −0.0004 [−0.0021, +0.0012] |
+| 12 leads, many gaps | +0.009 [+0.006, +0.012] | −0.0004 [−0.0019, +0.0012] |
+| Lead I, one gap | +0.004 [+0.001, +0.007] | +0.0003 [−0.0017, +0.0021] |
+| Lead I, many gaps | +0.011 [+0.007, +0.015] | +0.0001 [−0.0020, +0.0022] |
+
+- **Many short gaps hurt more than one long one.** Losing half the recording in one piece costs E1 only 0.008 macro-AUROC (0.930 to 0.922): five seconds of ECG still hold several heartbeats. Losing the same half in 0.5 s pieces costs 0.020 (to 0.910), and calibration suffers more than ranking: ECE rises from 0.021 to 0.093 and the Brier score from 0.079 to 0.111.
+- **Training with gaps removes most of that loss, at no cost without gaps.** With 50% missing in short gaps, the gap-trained model keeps 0.925 on 12 leads (E2a's model: 0.903) and 0.827 on lead I (0.807), with ECE 0.028 against 0.090. Without gaps it is as good as before (0.932 and 0.834).
+- **Telling the model where the gaps are adds nothing.** The presence channel changes macro-AUROC by at most 0.0004 and the Brier score by at most 0.0006, all intervals containing zero. A likely reason: an exactly flat stretch on every present lead does not occur in a real recording, so the zero-filled model can already tell where the gaps are.
 
 ## Limitations and next steps
 
