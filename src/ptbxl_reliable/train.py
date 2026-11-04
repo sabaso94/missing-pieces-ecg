@@ -26,6 +26,7 @@ class TrainConfig:
     tab_removed: np.ndarray | None = None  # feature vector of a record whose metadata is all missing
     gap_augment: bool = False  # train with random gaps in time (E7)
     time_mask_channel: bool = False  # give the model an extra input channel marking where the signal is present
+    sample_weight: np.ndarray | None = None  # loss weight for every record (N,), e.g. to balance groups (E8)
     lr: float = 1e-3
     weight_decay: float = 1e-2
     batch_size: int = 128
@@ -106,6 +107,7 @@ def train_model(cfg: TrainConfig, data: PreparedData) -> tuple[ECGResNet, pd.Dat
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.max_epochs)
     loss_fn = nn.BCEWithLogitsLoss()  # multi-label: one independent yes/no per superclass
+    weighted_loss_fn = nn.BCEWithLogitsLoss(reduction="none")
 
     train_idx, val_idx = data.idx["train"], data.idx["val"]
     fixed_mask = None if cfg.lead_mode == "dropout" else torch.from_numpy(config_mask(cfg.lead_mode))
@@ -143,7 +145,12 @@ def train_model(cfg: TrainConfig, data: PreparedData) -> tuple[ECGResNet, pd.Dat
                 tm = sample_training_gaps(len(batch), n_samples, generator).to(cfg.device)
 
             logits = model(xb.to(cfg.device), mask.to(cfg.device), tb, tm)
-            loss = loss_fn(logits, yb.to(cfg.device))
+            if cfg.sample_weight is None:
+                loss = loss_fn(logits, yb.to(cfg.device))
+            else:
+                # Each record's loss (averaged over classes) times its weight, averaged over the batch.
+                wb = torch.from_numpy(cfg.sample_weight[batch]).to(cfg.device, logits.dtype)
+                loss = (weighted_loss_fn(logits, yb.to(cfg.device)).mean(dim=1) * wb).mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

@@ -112,3 +112,19 @@ def test_gap_augmented_training_runs(synthetic):
     model, history = train_model(_cfg(lead_mode="dropout", gap_augment=True, time_mask_channel=True), synthetic)
     tm = gaps.fixed_gap_masks(5, 1000, 0.3, "one", seed=0)
     assert predict(model, synthetic.x[:5], "leadI", time_mask=tm, device="cpu").shape == (5, 5)
+
+
+def test_unit_sample_weights_match_unweighted(synthetic):
+    _, h0 = train_model(_cfg(), synthetic)
+    _, h1 = train_model(_cfg(sample_weight=np.ones(96, np.float32)), synthetic)
+    # Same loss up to float32 rounding (per-record then batch mean vs one mean); the first epoch is exact to
+    # 1e-5, later epochs drift slightly as rounding differences accumulate in the weights.
+    np.testing.assert_allclose(h0["train_loss"].iloc[0], h1["train_loss"].iloc[0], rtol=1e-5)
+    np.testing.assert_allclose(h0["train_loss"], h1["train_loss"], rtol=1e-2)
+
+
+def test_sample_weights_change_training(synthetic):
+    weights = np.where(np.arange(96) % 2 == 0, 1.9, 0.1).astype(np.float32)
+    _, h0 = train_model(_cfg(), synthetic)
+    _, h1 = train_model(_cfg(sample_weight=weights), synthetic)
+    assert not np.allclose(h0["train_loss"], h1["train_loss"], rtol=1e-3)
