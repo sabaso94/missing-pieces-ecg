@@ -7,7 +7,7 @@ This repository studies those two questions on PTB-XL, a public dataset of 21,79
 - **Missing modalities:** ECG leads that are absent at test time (E2a), patient metadata that is missing in a systematic, non-random way (E2b), and stretches of signal lost in time, as with a wearable (E7).
 - **Uncertainty:** deep ensembles of five networks (Lakshminarayanan et al., 2017). From the ensemble come predictive entropy (total uncertainty), mutual information (the part due to the model) and risk–coverage curves.
 - **Calibration:** reliability diagrams, ECE and the Brier score.
-- **Subgroup reliability:** discrimination and calibration by sex and age, with patient-level bootstrap tests of the gaps between groups (E3).
+- **Subgroup reliability:** discrimination and calibration by sex and age, with patient-level bootstrap tests of the gaps between groups (E3), and whether recalibration or reweighted training narrows those gaps (E8).
 - **Monitoring after deployment:** whether a statistical test notices that the patient population has changed (E4), and whether the model's performance can be estimated without labels (E5).
 - **A hospital the model never saw:** the cost of deploying at a recording site left out of training, separated from the cost of having less training data, and whether E4 and E5 notice (E6).
 
@@ -212,6 +212,38 @@ Both are selected on validation data with and without gaps. They are compared wi
 - **Training with gaps removes most of that loss, at no cost without gaps.** With 50% missing in short gaps, the gap-trained model keeps 0.925 on 12 leads (E2a's model: 0.903) and 0.827 on lead I (0.807), with ECE 0.028 against 0.090. Without gaps it is as good as before (0.932 and 0.834).
 - **Telling the model where the gaps are adds nothing.** The presence channel changes macro-AUROC by at most 0.0004 and the Brier score by at most 0.0006, all intervals containing zero. A likely reason: an exactly flat stretch on every present lead does not occur in a real recording, so the zero-filled model can already tell where the gaps are.
 
+### E8: narrowing the subgroup gaps
+
+E3 found the 12-lead model worse for women than for men and worse for patients aged 80+ than for those aged 60–79. Can either gap be narrowed, and at what cost overall?
+
+Four variants of the E1 model are compared:
+
+- **Platt scaling** (Platt, 1999): a logistic map per class, fitted on the validation fold and applied to E1's test predictions. There are three versions:
+  - one map for everyone;
+  - one per sex;
+  - one per age group.
+
+  Sex and age are always recorded in PTB-XL, so the group is known at deployment. The map is monotone, so within the group it was fitted on it changes calibration but not the ranking: it cannot change a within-group AUROC.
+- **Reweighted training:** a new ensemble trained like E1, with each record's loss weighted by the inverse size of its sex × age cell in the training set (eight cells, weights 0.53–3.14, mean 1), so every cell carries the same total weight.
+
+A gap counts as narrowed only if the 95% CI of its change against E1 excludes zero. That change is computed on the same patient resamples for both models, not by comparing two separate intervals.
+
+![E8 subgroup gaps](figures/e8_mitigation.png)
+
+| Change in the gap vs E1 | Men − women, AUROC | Men − women, Brier | 80+ − 60–79, AUROC | 80+ − 60–79, Brier | Overall macro-AUROC vs E1 |
+|---|---|---|---|---|---|
+| Platt, global | 0 (by construction) | −0.0001 [−0.0006, +0.0005] | 0 (by construction) | −0.0003 [−0.0012, +0.0006] | 0 (by construction) |
+| Platt, per sex | 0 (by construction) | 0.0000 [−0.0006, +0.0007] | +0.0004 [−0.0013, +0.0023] | −0.0010 [−0.0022, +0.0002] | +0.0001 [−0.0004, +0.0005] |
+| Platt, per age group | −0.0005 [−0.0027, +0.0017] | +0.0006 [−0.0004, +0.0016] | 0 (by construction) | −0.0025 [−0.0041, −0.0010] | −0.0007 [−0.0019, +0.0003] |
+| Reweighted training | 0.0000 [−0.0044, +0.0047] | −0.0001 [−0.0027, +0.0025] | −0.0038 [−0.0129, +0.0051] | +0.0024 [−0.0019, +0.0066] | −0.0035 [−0.0057, −0.0011] |
+
+E1's gaps are +0.018 [+0.004, +0.033] (men − women) and −0.036 [−0.064, −0.011] (80+ − 60–79) in macro-AUROC, and −0.012 and +0.021 in Brier score.
+
+- **Neither method narrows the sex gap.** No change in either metric excludes zero, and all are at least 20 times smaller than the gap itself.
+- **Per-age recalibration narrows the age gap in Brier score, slightly.** The Brier gap between 80+ and 60–79 falls from 0.021 to 0.018 (change −0.0025 [−0.0041, −0.0010]), and ECE for patients aged 80+ from 0.057 to 0.053. It is the only change in the table whose interval excludes zero. Global and per-sex recalibration change nothing, because E1 is already well calibrated overall (ECE 0.021).
+- **Reweighted training narrows nothing and costs overall.** All its gap changes contain zero. It loses 0.0035 [0.0011, 0.0057] macro-AUROC overall, its Brier score is worse by 0.0025 [0.0011, 0.0038], and its ECE rises from 0.021 to 0.028 (0.075 for patients aged 80+). Up-weighting rare cells changes the share of each diagnosis the model sees in training, which shifts its probabilities.
+- **The gaps are not explained by calibration or by group size in training alone.** Women make up 48% of the training set, so under-representation cannot explain the sex gap, and making every age group weigh the same did not close the age gap. What drives them is not established here; harder cases are one candidate (test ECGs of patients aged 80+ carry 1.59 superclass labels on average, against 1.34 at 60–79), which a causal analysis would need to test.
+
 ## Limitations and next steps
 
 - **One dataset, no external validation.** All results come from PTB-XL's own test fold. Validation on an independent cohort is the obvious next step.
@@ -258,4 +290,5 @@ figures/              the figures above
 - Gretton, A., Borgwardt, K. M., Rasch, M. J., Schölkopf, B., Smola, A. (2012). A kernel two-sample test. *Journal of Machine Learning Research* 13, 723–773.
 - Garg, S., Balakrishnan, S., Lipton, Z. C., Neyshabur, B., Sedghi, H. (2022). Leveraging unlabeled data to predict out-of-distribution performance. *ICLR*.
 - Guillory, D., Shankar, V., Ebrahimi, S., Darrell, T., Schmidt, L. (2021). Predicting with confidence on unseen distributions. *ICCV*.
+- Platt, J. (1999). Probabilistic outputs for support vector machines and comparisons to regularized likelihood methods. In *Advances in Large Margin Classifiers*, MIT Press, 61–74.
 - Lakshminarayanan, B., Pritzel, A., Blundell, C. (2017). Simple and scalable predictive uncertainty estimation using deep ensembles. *NeurIPS*.

@@ -333,9 +333,34 @@ def e7_gaps() -> None:
     _save(fig, "e7_gaps.png")
 
 
+def e8_mitigation() -> None:
+    gaps = pd.read_csv(RESULTS / "e8_gaps.csv")
+    variants = [("e1", "E1 as is"), ("e1_platt_global", "Platt, global"), ("e1_platt_sex", "Platt, per sex"),
+                ("e1_platt_age", "Platt, per age group"), ("reweighted", "reweighted training")]
+    panels = [("male", "female", "Men − women"), (">=80", "60-79", "Aged 80+ − aged 60-79")]
+    metrics = [("macro_auroc", "macro-AUROC gap"), ("brier", "Brier score gap")]
+    y = np.arange(len(variants))[::-1]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.4), sharey=True)
+    for ax, (group, versus, title) in zip(axes, panels):
+        for k, (metric, label) in enumerate(metrics):
+            rows = gaps[(gaps["group"] == group) & (gaps["versus"] == versus) & (gaps["metric"] == metric)]
+            rows = rows.set_index("variant").reindex([v for v, _ in variants])
+            err = [rows["gap"] - rows["gap_lo"], rows["gap_hi"] - rows["gap"]]
+            ax.errorbar(rows["gap"], y + (0.12 if k == 0 else -0.12), xerr=err, fmt="o", color=SERIES[k],
+                        markersize=5.5, elinewidth=1.5, label=label)
+        ax.axvline(0, color=MUTED, linewidth=1, zorder=0)
+        ax.set_title(title, loc="left")
+        ax.set_xlabel("gap between the groups (95% CI)\nAUROC gap > 0 or Brier gap < 0: first group better")
+        ax.grid(axis="y", visible=False)
+    axes[0].set_yticks(y, [label for _, label in variants])
+    _title(fig, "E8: subgroup gaps after recalibration or reweighting (test fold)", legend_ax=axes[0])
+    _save(fig, "e8_mitigation.png")
+
+
 def main() -> None:
     for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups, e4_detection,
-                 e5_labelfree, e6_sites, e7_gaps]:
+                 e5_labelfree, e6_sites, e7_gaps, e8_mitigation]:
         make()
         print("wrote", make.__name__)
 
