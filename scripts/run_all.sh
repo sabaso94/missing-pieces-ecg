@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Reproduce every result and figure: download -> tests -> E1 -> E2a -> E2b -> E3 -> figures.
+# Reproduce every result and figure: download -> tests -> E1 -> E2a -> E2b -> E3 -> E4 ... E8 -> figures.
 # Ensembles whose checkpoints already exist in checkpoints/ are loaded instead of retrained.
-# Usage: DEVICE=cuda:0 bash scripts/run_all.sh   (default cuda:1)
+# Usage: DEVICE=cuda:2 bash scripts/run_all.sh   (default cuda:1)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -16,4 +16,9 @@ bash scripts/download_data.sh
 "$PYTHON" scripts/run_e2a.py --device "$DEVICE"
 "$PYTHON" scripts/run_e2b.py --device "$DEVICE"
 "$PYTHON" scripts/run_e3.py
+"$PYTHON" scripts/run_e4.py --device "$DEVICE"
+"$PYTHON" scripts/run_e5.py
+"$PYTHON" scripts/run_e6.py --device "$DEVICE"
+"$PYTHON" scripts/run_e7.py --device "$DEVICE"
+"$PYTHON" scripts/run_e8.py --device "$DEVICE"
 "$PYTHON" scripts/make_figures.py

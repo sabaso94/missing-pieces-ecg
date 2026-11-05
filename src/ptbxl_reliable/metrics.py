@@ -86,3 +86,27 @@ def bootstrap_ci(
         samples.append(metric(y[idx], p[idx]))
     lo, hi = np.nanpercentile(samples, [2.5, 97.5])
     return float(point), float(lo), float(hi)
+
+
+def model_diff_ci(
+    metric: Callable[[np.ndarray, np.ndarray], float],
+    y: np.ndarray,
+    p_a: np.ndarray,
+    p_b: np.ndarray,
+    patient_ids: np.ndarray,
+    n_boot: int = 1000,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """metric(model a) - metric(model b) on the same records, with a paired 95% bootstrap CI.
+
+    Both models are scored on the same patient resample each time, so the variation the two share
+    (which records happen to be drawn) cancels out of the difference.
+    """
+    rng = np.random.default_rng(seed)
+    point = metric(y, p_a) - metric(y, p_b)
+    samples = []
+    for _ in range(n_boot):
+        idx = _patient_resample_indices(patient_ids, rng)
+        samples.append(metric(y[idx], p_a[idx]) - metric(y[idx], p_b[idx]))
+    lo, hi = np.nanpercentile(samples, [2.5, 97.5])
+    return float(point), float(lo), float(hi)

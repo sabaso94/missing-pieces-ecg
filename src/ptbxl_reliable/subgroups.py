@@ -96,3 +96,42 @@ def gap_ci(
     samples = [gap(_patient_resample_indices(patient_ids, rng)) for _ in range(n_boot)]
     lo, hi = np.nanpercentile(samples, [2.5, 97.5])
     return float(point), float(lo), float(hi)
+
+
+def gap_change_ci(
+    metric: Callable[[np.ndarray, np.ndarray], float],
+    y: np.ndarray,
+    p_new: np.ndarray,
+    p_old: np.ndarray,
+    in_a: np.ndarray,
+    in_b: np.ndarray,
+    patient_ids: np.ndarray,
+    n_boot: int = 1000,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """How much a change of model moved the gap between groups a and b, with a 95% CI.
+
+    [metric(a, new) - metric(b, new)] - [metric(a, old) - metric(b, old)], both models scored on the same
+    patient resamples. Comparing the two models' separate gap_ci intervals would repeat the
+    overlapping-intervals mistake: a gap counts as narrowed only if this interval excludes zero.
+    """
+    def change(idx: np.ndarray) -> float:
+        a, b, yy = in_a[idx], in_b[idx], y[idx]
+        new, old = p_new[idx], p_old[idx]
+        return (metric(yy[a], new[a]) - metric(yy[b], new[b])) - (metric(yy[a], old[a]) - metric(yy[b], old[b]))
+
+    rng = np.random.default_rng(seed)
+    point = change(np.arange(len(y)))
+    samples = [change(_patient_resample_indices(patient_ids, rng)) for _ in range(n_boot)]
+    lo, hi = np.nanpercentile(samples, [2.5, 97.5])
+    return float(point), float(lo), float(hi)
+
+
+def group_weights(groups: pd.Series) -> np.ndarray:
+    """Per-record weights inversely proportional to the size of the record's group, with mean 1.
+
+    Every group then carries the same total weight in the training loss.
+    """
+    counts = groups.map(groups.value_counts()).to_numpy(dtype=float)
+    weights = 1 / counts
+    return weights / weights.mean()

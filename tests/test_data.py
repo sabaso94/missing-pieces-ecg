@@ -1,14 +1,17 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from ptbxl_reliable import data
 from ptbxl_reliable.data import (
     SUPERCLASSES,
+    PreparedData,
     fit_lead_stats,
     load_metadata,
     load_signals,
+    restrict,
     split_ids,
     standardise,
 )
@@ -96,3 +99,23 @@ def test_real_data_no_patient_overlap():
     assert not train_patients & test_patients
     assert not train_patients & val_patients
     assert 21_000 <= len(meta) <= 21_799
+
+
+def test_restrict_restandardises_without_touching_original():
+    rng = np.random.default_rng(0)
+    raw = rng.normal(3.0, 2.0, size=(40, 12, 50)).astype(np.float32)
+    raw[20:] += 5.0  # rows 20+ come from a different "site"
+    m, s = fit_lead_stats(raw)
+    data = PreparedData(
+        x=standardise(raw, m, s),
+        y=np.zeros((40, 5), np.float32),
+        meta=pd.DataFrame(index=range(40)),
+        idx={"train": np.arange(0, 30), "val": np.arange(30, 35), "test": np.arange(35, 40)},
+    )
+    before = data.x.copy()
+    sub = restrict(data, np.arange(0, 20), np.arange(30, 35))
+    np.testing.assert_array_equal(data.x, before)
+    m2, s2 = fit_lead_stats(raw[:20])
+    np.testing.assert_allclose(sub.x, standardise(raw, m2, s2), atol=1e-4)
+    np.testing.assert_array_equal(sub.idx["train"], np.arange(0, 20))
+    np.testing.assert_array_equal(sub.idx["test"], data.idx["test"])

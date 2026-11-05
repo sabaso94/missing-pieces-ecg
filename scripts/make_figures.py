@@ -163,8 +163,204 @@ def e3_subgroups() -> None:
     _save(fig, "e3_subgroups.png")
 
 
+def e4_detection() -> None:
+    table = pd.read_csv(RESULTS / "e4_detection.csv")
+    shifts = [("age_80plus", "Aged 80+"), ("female", "Women"), ("site0", "Site 0")]
+    detectors = [("mmd_features", "-", "features (MMD)"), ("ks_outputs", "--", "outputs (KS)")]
+    sizes = sorted(table["batch_size"].unique())
+    null = table[table["shift"] == "none"]
+
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.3), sharey=True)
+    for ax, (shift, title) in zip(axes, shifts):
+        rows = table[table["shift"] == shift]
+        for k, lam in enumerate(sorted(rows["lam"].unique())):
+            for detector, style, det_label in detectors:
+                line = rows[(rows["lam"] == lam) & (rows["detector"] == detector)]
+                label = f"{lam:.0%} of batch from subgroup" if detector == "mmd_features" else None
+                ax.plot(line["batch_size"], line["detection_rate"], style, color=SERIES[k], marker="o",
+                        markersize=3.5, label=label)
+        false_alarm = null.groupby("batch_size")["detection_rate"].max()
+        ax.plot(false_alarm.index, false_alarm.values, ":", color=MUTED, label="no shift (false alarms)")
+        harm = rows[(rows["lam"] == 1.0)]["brier_change"].mean()
+        ax.set_title(f"{title}\nBrier change at 100%: {harm:+.3f}", loc="left")
+        ax.set_xscale("log")
+        ax.set_xticks(sizes, [str(n) for n in sizes])
+        ax.minorticks_off()
+        ax.set(xlabel="ECGs per deployment batch", ylim=(-0.03, 1.03))
+    axes[0].set_ylabel("share of batches flagged")
+    axes[0].plot([], [], "-", color=INK_2, label="solid: features (MMD)")
+    axes[0].plot([], [], "--", color=INK_2, label="dashed: outputs (KS)")
+    # Legend below the panels: seven entries do not fit in one row beside the title.
+    fig.suptitle("E4: share of deployment batches flagged as shifted (alpha = 0.05)", x=0.01, y=1.08,
+                 ha="left", color=INK, fontsize=12)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.02), ncol=3)
+    _save(fig, "e4_detection.png")
+
+
+def e5_labelfree() -> None:
+    table = pd.read_csv(RESULTS / "e5_labelfree.csv")
+    groups = [("e1", "o", "12-lead model, subgroups"), ("e2a_dropout", "s", "lead-dropout model, leads removed"),
+              ("e2a_naive", "^", "12-lead model, leads removed")]
+    held_out = RESULTS / "e6_labelfree.csv"  # E6 adds the models that never saw the site they are tested on
+    if held_out.exists():
+        table = pd.concat([table, pd.read_csv(held_out)])
+        groups.append(("e6_loso", "D", "site left out of training (E6)"))
+    methods = [("ac_acc", "AC"), ("atc_acc", "ATC"), ("doc_acc", "DoC")]
+
+    fig, (ax_all, ax_zoom, ax_brier) = plt.subplots(1, 3, figsize=(12, 3.9))
+    for model, marker, model_label in groups:
+        rows = table[table["model"] == model]
+        for k, (column, method) in enumerate(methods):
+            # DoC is hollow: it often lands exactly on AC, which would otherwise be hidden.
+            style = dict(color=SERIES[k], markersize=6 if method == "DoC" else 5,
+                         markerfacecolor="none" if method == "DoC" else SERIES[k])
+            ax_all.plot(rows["true_acc"], rows[column], marker, label=method if model == "e1" else None, **style)
+            if model != "e2a_naive":
+                ax_zoom.plot(rows["true_acc"], rows[column], marker, **style)
+        ax_brier.plot(rows["true_brier"], rows["ac_brier"], marker, color=SERIES[0], markersize=5)
+        ax_all.plot([], [], marker, color=MUTED, label=model_label)
+    calibrated = table[table["model"] != "e2a_naive"]
+    ax_zoom.errorbar(calibrated["true_acc"], calibrated["true_acc"], xerr=[
+        calibrated["true_acc"] - calibrated["true_acc_lo"], calibrated["true_acc_hi"] - calibrated["true_acc"]],
+        fmt="none", ecolor=AXIS, elinewidth=1)
+
+    for ax, lims in [(ax_all, (0.45, 0.97)), (ax_zoom, (0.82, 0.95)), (ax_brier, (0.04, 0.27))]:
+        ax.plot(lims, lims, color=MUTED, linewidth=1, zorder=0)
+        ax.set(xlim=lims, ylim=lims)
+    ax_all.set(xlabel="true accuracy", ylabel="estimated accuracy", title="Accuracy, all scenarios")
+    ax_zoom.set(xlabel="true accuracy (grey: 95% CI)", title="Accuracy, calibrated models only")
+    ax_brier.set(xlabel="true Brier score", ylabel="estimated Brier score (AC)", title="Brier score")
+    fig.suptitle("E5: performance estimated without labels vs the true value (test fold)", x=0.01, y=1.02,
+                 ha="left", color=INK, fontsize=12)
+    handles, labels = ax_all.get_legend_handles_labels()
+    fig.tight_layout()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=4)
+    _save(fig, "e5_labelfree.png")
+
+
+def e6_sites() -> None:
+    sites = pd.read_csv(RESULTS / "e6_sites.csv").query("eval_set == 'site'")
+    diffs = pd.read_csv(RESULTS / "e6_diffs.csv").query("contrast == 'loso - control'")
+    detection = pd.read_csv(RESULTS / "e6_detection.csv")
+    models = [("e1", "E1 (all training data)"), ("control", "size-matched control"),
+              ("loso", "site left out of training")]
+    site_ids = sorted(sites["site"].unique())
+    y = np.arange(len(site_ids))[::-1]
+
+    fig, (ax_auc, ax_brier, ax_det) = plt.subplots(1, 3, figsize=(13, 3.8), gridspec_kw={"wspace": 0.3})
+    for k, (model, label) in enumerate(models):
+        rows = sites[sites["model"] == model].set_index("site").reindex(site_ids)
+        offset = 0.2 * (1 - k)
+        for ax, metric in [(ax_auc, "macro_auroc"), (ax_brier, "brier")]:
+            err = [rows[metric] - rows[f"{metric}_lo"], rows[f"{metric}_hi"] - rows[metric]]
+            ax.errorbar(rows[metric], y + offset, xerr=err, fmt="o", color=SERIES[k], markersize=5.5,
+                        elinewidth=1.5, label=label)
+    n = sites.query("model == 'e1'").set_index("site")["n"]
+    for ax, metric, title in [(ax_auc, "macro_auroc", "Discrimination on the held-out site"),
+                              (ax_brier, "brier", "Calibration on the held-out site")]:
+        d = diffs[diffs["metric"] == metric].set_index("site")
+        for s, row_y in zip(site_ids, y):
+            # Left out minus control, written above each site's three intervals.
+            ax.text(0.01, row_y + 0.38, f"left out − control: {d.loc[s, 'diff']:+.3f} "
+                    f"[{d.loc[s, 'lo']:+.3f}, {d.loc[s, 'hi']:+.3f}]", transform=ax.get_yaxis_transform(),
+                    color=INK_2, fontsize=8.5)
+        ax.set_yticks(y, [f"site {s}\n(n={n[s]})" for s in site_ids])
+        ax.set_ylim(y.min() - 0.45, y.max() + 0.6)
+        ax.grid(axis="y", visible=False)
+        ax.set_title(title, loc="left")
+    ax_auc.set(xlabel="macro-AUROC (95% CI)")
+    ax_brier.set(xlabel="Brier score (95% CI, lower is better)")
+
+    for k, s in enumerate(site_ids):
+        rows = detection[(detection["site"] == s) & (detection["shift"] == "held-out site")]
+        for detector, style in [("mmd_features", "-"), ("ks_outputs", "--")]:
+            line = rows[rows["detector"] == detector]
+            ax_det.plot(line["batch_size"], line["detection_rate"], style, marker="o", markersize=3.5,
+                        color=[INK, INK_2, MUTED][k], label=f"site {s}" if detector == "mmd_features" else None)
+    false_alarm = detection[detection["shift"] != "held-out site"].groupby("batch_size")["detection_rate"].max()
+    ax_det.plot(false_alarm.index, false_alarm.values, ":", color=AXIS, label="no shift (other sites)")
+    ax_det.plot([], [], "-", color=INK_2, label="solid: features (MMD)")
+    ax_det.plot([], [], "--", color=INK_2, label="dashed: outputs (KS)")
+    sizes = sorted(detection["batch_size"].unique())
+    ax_det.set_xscale("log")
+    ax_det.set_xticks(sizes, [str(s) for s in sizes])
+    ax_det.minorticks_off()
+    ax_det.set(xlabel="ECGs per deployment batch", ylabel="share of batches flagged", ylim=(-0.03, 1.03))
+    ax_det.set_title("Is the new site detected? (E4 tests)", loc="left")
+    ax_det.legend(loc="center right", fontsize=8)
+
+    fig.suptitle("E6: a hospital site the model never saw (test fold, records of the held-out site)",
+                 x=0.01, y=1.04, ha="left", color=INK, fontsize=12)
+    handles, labels = ax_auc.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.02), ncol=3)
+    _save(fig, "e6_sites.png")
+
+
+def e7_gaps() -> None:
+    table = pd.read_csv(RESULTS / "e7_gaps.csv")
+    models = [("e2a_dropout", "lead dropout, no gap training (E2a)"), ("e7_gaps_zero", "gap training, zero-filled"),
+              ("e7_gaps_channel", "gap training + presence channel")]
+    patterns = [("one", "one gap"), ("many", "many 0.5 s gaps")]
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6.4), sharex=True, sharey="row")
+    for row, (leads, leads_label) in enumerate([("all12", "12 leads"), ("leadI", "lead I")]):
+        for col, (pattern, pattern_label) in enumerate(patterns):
+            ax = axes[row, col]
+            # Fraction 0 is evaluated once ("none") and starts both patterns' curves.
+            rows = table[(table["leads"] == leads) & table["pattern"].isin(["none", pattern])].sort_values("fraction")
+            if leads == "all12":
+                e1 = rows[rows["model"] == "e1"]
+                ax.plot(e1["fraction"], e1["macro_auroc"], color=MUTED, linewidth=1.5, marker="o", markersize=3,
+                        label="E1, 12-lead model (no gap training)")
+            for k, (model, label) in enumerate(models):
+                line = rows[rows["model"] == model]
+                ax.plot(line["fraction"], line["macro_auroc"], color=SERIES[k], marker="o", markersize=3.5,
+                        label=label)
+            ax.set_title(f"{leads_label}, {pattern_label}", loc="left")
+            ax.xaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0))
+            if row == 1:
+                ax.set_xlabel("share of the recording missing")
+            if col == 0:
+                ax.set_ylabel("macro-AUROC")
+    # No CI bands: the models are scored on the same records, so their separate intervals overlap far more
+    # than the paired differences do; those are tested in results/e7_diffs.csv and the README table.
+    fig.suptitle("E7: gaps in time on the test fold (all leads drop out together)", x=0.01, y=1.0, ha="left",
+                 color=INK, fontsize=12)
+    fig.tight_layout()
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=2)
+    _save(fig, "e7_gaps.png")
+
+
+def e8_mitigation() -> None:
+    gaps = pd.read_csv(RESULTS / "e8_gaps.csv")
+    variants = [("e1", "E1 as is"), ("e1_platt_global", "Platt, global"), ("e1_platt_sex", "Platt, per sex"),
+                ("e1_platt_age", "Platt, per age group"), ("reweighted", "reweighted training")]
+    panels = [("male", "female", "Men − women"), (">=80", "60-79", "Aged 80+ − aged 60-79")]
+    metrics = [("macro_auroc", "macro-AUROC gap"), ("brier", "Brier score gap")]
+    y = np.arange(len(variants))[::-1]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.4), sharey=True)
+    for ax, (group, versus, title) in zip(axes, panels):
+        for k, (metric, label) in enumerate(metrics):
+            rows = gaps[(gaps["group"] == group) & (gaps["versus"] == versus) & (gaps["metric"] == metric)]
+            rows = rows.set_index("variant").reindex([v for v, _ in variants])
+            err = [rows["gap"] - rows["gap_lo"], rows["gap_hi"] - rows["gap"]]
+            ax.errorbar(rows["gap"], y + (0.12 if k == 0 else -0.12), xerr=err, fmt="o", color=SERIES[k],
+                        markersize=5.5, elinewidth=1.5, label=label)
+        ax.axvline(0, color=MUTED, linewidth=1, zorder=0)
+        ax.set_title(title, loc="left")
+        ax.set_xlabel("gap between the groups (95% CI)\nAUROC gap > 0 or Brier gap < 0: first group better")
+        ax.grid(axis="y", visible=False)
+    axes[0].set_yticks(y, [label for _, label in variants])
+    _title(fig, "E8: subgroup gaps after recalibration or reweighting (test fold)", legend_ax=axes[0])
+    _save(fig, "e8_mitigation.png")
+
+
 def main() -> None:
-    for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups]:
+    for make in [e1_reliability, e2a_leads, e2a_risk_coverage, e2b_metadata, e3_subgroups, e4_detection,
+                 e5_labelfree, e6_sites, e7_gaps, e8_mitigation]:
         make()
         print("wrote", make.__name__)
 

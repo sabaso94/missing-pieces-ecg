@@ -7,6 +7,7 @@ from ptbxl_reliable.metrics import (
     brier,
     ece,
     macro_auroc,
+    model_diff_ci,
     per_class_auroc,
 )
 
@@ -61,3 +62,14 @@ def test_bootstrap_patient_level():
     point, lo, hi = first
     assert point == pytest.approx(macro_auroc(y, p))
     assert lo <= point <= hi
+
+
+def test_model_diff_ci():
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 2, (400, 5)).astype(float)
+    pid = np.arange(400) // 2
+    p = rng.random((400, 5))
+    assert model_diff_ci(macro_auroc, y, p, p, pid, n_boot=50) == (0.0, 0.0, 0.0)
+    good = 0.7 * y + 0.3 * p
+    point, lo, hi = model_diff_ci(macro_auroc, y, good, p, pid, n_boot=200)
+    assert lo > 0 and lo <= point <= hi

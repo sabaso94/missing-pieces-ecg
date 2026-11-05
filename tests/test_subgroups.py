@@ -4,7 +4,14 @@ import pytest
 
 from ptbxl_reliable.data import SUPERCLASSES
 from ptbxl_reliable.metrics import macro_auroc
-from ptbxl_reliable.subgroups import age_group, gap_ci, merge_small_bins, subgroup_table
+from ptbxl_reliable.subgroups import (
+    age_group,
+    gap_change_ci,
+    gap_ci,
+    group_weights,
+    merge_small_bins,
+    subgroup_table,
+)
 
 
 def test_age_group_boundaries():
@@ -69,3 +76,23 @@ def test_gap_ci_ignores_records_outside_both_groups():
     p[600:] = y[600:]  # a third group the comparison must not see
     point, _, _ = gap_ci(macro_auroc, y, p, in_a, in_b, np.arange(n), n_boot=10)
     assert point == pytest.approx(macro_auroc(y[in_a], p[in_a]) - macro_auroc(y[in_b], p[in_b]))
+
+
+def test_gap_change_ci_zero_for_same_predictions_and_detects_fix():
+    rng = np.random.default_rng(0)
+    n = 800
+    y = rng.integers(0, 2, (n, 5)).astype(float)
+    in_a, in_b = np.arange(n) < n // 2, np.arange(n) >= n // 2
+    pid = np.arange(n) // 2
+    p_old = np.where(in_a[:, None], 0.6 * y + 0.4 * rng.random((n, 5)), 0.2 * y + 0.8 * rng.random((n, 5)))
+    assert gap_change_ci(macro_auroc, y, p_old, p_old, in_a, in_b, pid, n_boot=50) == (0.0, 0.0, 0.0)
+    p_new = p_old.copy()
+    p_new[in_b] = 0.6 * y[in_b] + 0.4 * rng.random((in_b.sum(), 5))  # group b now as good as a
+    point, lo, hi = gap_change_ci(macro_auroc, y, p_new, p_old, in_a, in_b, pid, n_boot=200)
+    assert point < 0 and hi < 0  # the gap a - b shrank
+
+
+def test_group_weights_balance_groups():
+    w = group_weights(pd.Series(["a"] * 1 + ["b"] * 3))
+    np.testing.assert_allclose(w, [2, 2 / 3, 2 / 3, 2 / 3])
+    assert w.mean() == pytest.approx(1)

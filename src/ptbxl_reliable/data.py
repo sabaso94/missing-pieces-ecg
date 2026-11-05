@@ -122,3 +122,15 @@ def prepare_data(data_dir: Path, sampling_rate: int = 100) -> PreparedData:
         meta=meta,
         idx=idx,
     )
+
+
+def restrict(data: PreparedData, train_idx: np.ndarray, val_idx: np.ndarray) -> PreparedData:
+    """The same records with a smaller training and validation set, re-standardised on the new training set.
+
+    Standardisation is affine per lead, so re-standardising the already-standardised signals gives the
+    same result as standardising the raw signals with the new training statistics. Returns a new object;
+    `data.x` is not modified. The test split is kept.
+    """
+    mean, std = fit_lead_stats(data.x[train_idx])
+    idx = {**data.idx, "train": np.asarray(train_idx), "val": np.asarray(val_idx)}
+    return PreparedData(x=standardise(data.x, mean, std), y=data.y, meta=data.meta, idx=idx)
